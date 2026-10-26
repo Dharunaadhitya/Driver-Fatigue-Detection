@@ -30,7 +30,7 @@ db.pragma('foreign_keys = ON');
 console.log('🌱 Seeding DrowsyGuard Fleet database...');
 
 // Drop tables to apply updated constraints cleanly
-const tables = ['events', 'trips', 'calibration_profiles', 'drivers', 'users', 'companies', 'system_settings'];
+const tables = ['snapshots', 'events', 'trips', 'calibration_profiles', 'drivers', 'users', 'companies', 'system_settings'];
 for (const table of tables) {
   db.exec(`DROP TABLE IF EXISTS ${table};`);
 }
@@ -98,7 +98,6 @@ insertSetting.run('marThreshold', '0.60');
 insertSetting.run('perclosWarningPct', '40');
 insertSetting.run('perclosDangerPct', '70');
 insertSetting.run('microsleepFrames', '45');
-insertSetting.run('esp32StreamUrl', 'http://10.15.80.91:81/stream');
 
 // 5. 60 Days of Trips and Events
 const insertTrip = db.prepare(`
@@ -255,6 +254,70 @@ db.transaction(() => {
   insertEvent.run(t1.lastInsertRowid, activeDriver1.id, new Date(now.getTime() - 15 * 60 * 1000).toISOString(), 'warning', 'warning', 1000, 0.21, 0.40, 0.44, 'New', null, null, null);
   insertEvent.run(t2.lastInsertRowid, activeDriver2.id, new Date(now.getTime() - 8 * 60 * 1000).toISOString(), 'yawn', 'warning', 1800, 0.25, 0.68, 0.38, 'New', null, null, null);
   insertEvent.run(t2.lastInsertRowid, activeDriver2.id, new Date(now.getTime() - 2 * 60 * 1000).toISOString(), 'danger', 'danger', 1400, 0.17, 0.45, 0.72, 'New', null, null, null);
+
+  // 6. Seed Realistic Incident Snapshots for Drivers
+  const insertSnapshot = db.prepare(`
+    INSERT INTO snapshots (driver_id, trip_id, filename, filepath, trigger_type, captured_at, uploaded_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  const triggers = ['microsleep', 'danger', 'yawn', 'warning'];
+  const snapshotsBaseDir = path.join(__dirname, 'data', 'snapshots');
+  if (!fs.existsSync(snapshotsBaseDir)) {
+    fs.mkdirSync(snapshotsBaseDir, { recursive: true });
+  }
+
+  for (const driver of createdDrivers) {
+    const driverSnapDir = path.join(snapshotsBaseDir, driver.empId);
+    if (!fs.existsSync(driverSnapDir)) {
+      fs.mkdirSync(driverSnapDir, { recursive: true });
+    }
+
+    for (let s = 1; s <= 3; s++) {
+      const snapTrigger = triggers[(driver.id + s) % triggers.length];
+      const snapTime = new Date(now.getTime() - (s * 3600 * 24 * 2 + s * 1800) * 1000);
+      const pad = n => String(n).padStart(2, '0');
+      const filename = `${snapTime.getFullYear()}${pad(snapTime.getMonth()+1)}${pad(snapTime.getDate())}_${pad(snapTime.getHours())}${pad(snapTime.getMinutes())}${pad(snapTime.getSeconds())}.jpg`;
+      const filepath = path.join(driverSnapDir, filename);
+
+      const color = snapTrigger === 'microsleep' ? '#EF4444' : (snapTrigger === 'danger' ? '#F97316' : '#F59E0B');
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 480" width="640" height="480">
+  <defs>
+    <radialGradient id="vignette" cx="50%" cy="50%" r="70%">
+      <stop offset="0%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#090d16"/>
+    </radialGradient>
+  </defs>
+  <rect width="640" height="480" fill="url(#vignette)"/>
+  <line x1="40" y1="240" x2="600" y2="240" stroke="rgba(255,255,255,0.08)" stroke-dasharray="4,4"/>
+  <line x1="320" y1="40" x2="320" y2="440" stroke="rgba(255,255,255,0.08)" stroke-dasharray="4,4"/>
+  <circle cx="320" cy="210" r="105" fill="none" stroke="${color}" stroke-width="2" stroke-opacity="0.35"/>
+  <ellipse cx="320" cy="370" rx="140" ry="80" fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="2"/>
+  <path d="M 270 190 Q 285 185 300 190 Q 285 195 270 190 Z" fill="${color}" fill-opacity="0.7"/>
+  <path d="M 340 190 Q 355 185 370 190 Q 355 195 340 190 Z" fill="${color}" fill-opacity="0.7"/>
+  <ellipse cx="320" cy="260" rx="${snapTrigger === 'yawn' ? '22' : '16'}" ry="${snapTrigger === 'yawn' ? '18' : '6'}" fill="rgba(0,0,0,0.5)" stroke="${color}" stroke-width="2"/>
+  <rect x="24" y="24" width="140" height="30" rx="6" fill="${color}" fill-opacity="0.2" stroke="${color}" stroke-width="1.5"/>
+  <text x="94" y="44" fill="${color}" font-family="system-ui, sans-serif" font-weight="700" font-size="13" text-anchor="middle">⚠️ ${snapTrigger.toUpperCase()}</text>
+  <rect x="500" y="24" width="116" height="30" rx="6" fill="rgba(0,0,0,0.5)" stroke="rgba(255,255,255,0.2)"/>
+  <text x="558" y="44" fill="#38BDF8" font-family="monospace" font-weight="600" font-size="12" text-anchor="middle">REC ● LIVE</text>
+  <rect x="0" y="430" width="640" height="50" fill="rgba(0,0,0,0.75)"/>
+  <text x="24" y="462" fill="#E2E8F0" font-family="monospace" font-size="13" font-weight="600">DRIVER: ${driver.empId} (${driver.name})</text>
+  <text x="320" y="462" fill="#94A3B8" font-family="monospace" font-size="12" text-anchor="middle">${snapTime.toISOString().substring(0, 19).replace('T', ' ')}</text>
+  <text x="616" y="462" fill="#38BDF8" font-family="monospace" font-size="13" font-weight="700" text-anchor="end">IN-CAB WEBCAM</text>
+</svg>`;
+      fs.writeFileSync(filepath, svg);
+
+      insertSnapshot.run(
+        driver.empId,
+        null,
+        filename,
+        filepath,
+        snapTrigger,
+        snapTime.toISOString(),
+        snapTime.toISOString()
+      );
+    }
+  }
 })();
 
 console.log('✅ Seed completed successfully!');

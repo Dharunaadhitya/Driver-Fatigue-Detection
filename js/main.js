@@ -10,7 +10,6 @@ import { AlertEngine } from './alertEngine.js';
 
 // ── DOM refs ──────────────────────────────────────────────────────────────
 const videoEl = document.getElementById('videoFeed');
-const imgEl = document.getElementById('esp32Feed');
 const overlayCanvas = document.getElementById('overlayCanvas');
 const ctx2d = overlayCanvas.getContext('2d');
 
@@ -37,11 +36,15 @@ const stopBtn = document.getElementById('stopBtn');
 const resetBtn = document.getElementById('resetBtn');
 const muteBtn = document.getElementById('muteBtn');
 
-const sourceToggle = document.getElementById('sourceToggle');
-const esp32UrlInput = document.getElementById('esp32Url');
-const applyEspBtn = document.getElementById('applyEspBtn');
-const esp32Status = document.getElementById('esp32Status');
 const videoLabel = document.getElementById('videoLabel');
+
+const headerSnapshotBtn = document.getElementById('headerSnapshotBtn');
+const tabManualSnapBtn = document.getElementById('tabManualSnapBtn');
+const snapshotsList = document.getElementById('snapshotsList');
+const snapCount = document.getElementById('snapCount');
+
+let capturedSnapshots = [];
+let lastAutoSnapTime = 0;
 
 const earThresholdInput = document.getElementById('earThreshold');
 const marThresholdInput = document.getElementById('marThreshold');
@@ -112,19 +115,17 @@ async function init() {
   // Wire alert engine
   alertEngine.onLevelChange = handleAlertLevelChange;
 
-  // Wire video source — route ESP32 connection messages to the status pill
+  // Wire video source
   videoSource.onStatusChange = (s) => {
-    // ESP32-specific messages go to the status pill; others go to the header status bar
-    if (s.startsWith('ESP32-CAM:')) {
-      setEsp32Status(s);
-      // Also show in header as a brief note
-      setStatus(s, 'active');
-    } else {
-      setStatus(s, 'active');
-    }
+    setStatus(s, 'active');
   };
 
-  // Restore settings (including source mode)
+  if (videoLabel) {
+    videoLabel.textContent = 'WEBCAM';
+  }
+  applyCanvasMirror();
+
+  // Restore settings
   loadSettings();
   renderHistory();
   initTheme();
@@ -135,226 +136,374 @@ startBtn.addEventListener('click', async () => {
   startBtn.disabled = true;
   stopBtn.disabled = false;
   try {
-    await videoSource.start(videoEl, imgEl);
+    await videoSource.start(videoEl);
     isRunning = true;
+    if (headerSnapshotBtn) headerSnapshotBtn.disabled = false;
     sessionStart = Date.now();
     sessionTimerInterval = setInterval(updateSessionTimer, 1000);
-    loop();
-    setStatus('Detecting…', 'active');
-    if (!fatigueEngine.calibrated) showCalib(true);
+    fatigueEngine.startCalibration();
+    showCalib(true);
+    setStatus('Monitoring active', 'active');
+    renderLoop();
   } catch (err) {
-    setStatus('Camera error: ' + err.message, 'error');
+    setStatus('Camera failed: ' + err.message, 'error');
     startBtn.disabled = false;
     stopBtn.disabled = true;
   }
 });
 
-stopBtn.addEventListener('click', stopSession);
+stopBtn.addEventListener('click', () => {
+  stopSession();
+});
+
 resetBtn.addEventListener('click', () => {
   fatigueEngine.reset();
-  alertEngine.clearHistory();
+  alertEngine.reset();
   renderHistory();
-  resetGauges();
-  showCalib(true);
-  setStatus('Reset — click Start to calibrate again', 'ready');
+  clearMetricsUI();
+  setStatus(isRunning ? 'Session reset — monitoring' : 'Ready — click Start', isRunning ? 'active' : 'ready');
 });
 
 muteBtn.addEventListener('click', () => {
   const muted = alertEngine.toggleMute();
-  muteBtn.innerHTML = muted
-    ? '<span class="btn-icon">🔇</span> Unmute'
-    : '<span class="btn-icon">🔊</span> Mute';
+  muteBtn.classList.toggle('muted', muted);
+  muteBtn.querySelector('.btn-icon').textContent = muted ? '🔇' : '🔊';
+  muteBtn.title = muted ? 'Unmute audio alarms' : 'Mute audio alarms';
 });
 
 function stopSession() {
   isRunning = false;
-  if (animFrameId) cancelAnimationFrame(animFrameId);
-  if (sessionTimerInterval) clearInterval(sessionTimerInterval);
+  if (animFrameId) {
+    cancelAnimationFrame(animFrameId);
+    animFrameId = null;
+  }
+  clearInterval(sessionTimerInterval);
   videoSource.destroy();
-  ctx2d.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+  faceDetector.reset();
   startBtn.disabled = false;
   stopBtn.disabled = true;
-  setStatus('Stopped', 'idle');
-  setAlertUI('normal');
+  if (headerSnapshotBtn) headerSnapshotBtn.disabled = true;
+  setStatus('Session stopped', 'idle');
+  showCalib(false);
+  clearMetricsUI();
 }
 
-// ── Main loop ─────────────────────────────────────────────────────────────
-function loop() {
+// ── Render Loop ───────────────────────────────────────────────────────────
+function renderLoop() {
   if (!isRunning) return;
-  animFrameId = requestAnimationFrame(loop);
 
+  processFrame();
+  animFrameId = requestAnimationFrame(renderLoop);
+}
+
+function processFrame() {
   const el = videoSource.getActiveElement();
   if (!videoSource.isReady()) return;
 
-  // Sync canvas size using source-agnostic helper
+  // Match canvas dimensions to video element
   const { width: w, height: h } = videoSource.getSourceDimensions();
   if (overlayCanvas.width !== w || overlayCanvas.height !== h) {
     overlayCanvas.width = w;
     overlayCanvas.height = h;
   }
 
+  // Clear previous landmarks
+  ctx2d.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+
+  // Send frame to FaceDetector
   faceDetector.send(el);
 }
 
-// ── Face results handler ──────────────────────────────────────────────────
-function handleFaceResults(faceData) {
+// ── Face Results Handler ──────────────────────────────────────────────────
+function handleFaceResults(data) {
+  if (!isRunning) return;
+
+  const now = Date.now();
+  const faceFound = Boolean(data && (data.detected || data.faceDetected));
+
+  if (!faceFound) {
+    updateFaceBadge(false);
+    return;
+  }
+
+  updateFaceBadge(true);
+
   // Update fatigue engine
-  const state = fatigueEngine.update(faceData);
+  const metrics = fatigueEngine.update(data, now);
 
-  // Update alert engine
-  const level = alertEngine.evaluate(state);
-  currentAlertLevel = level;
-
-  // Update calibration progress
+  // Calibration progress indicator
   if (!fatigueEngine.calibrated) {
-    const pct = Math.min(100, (fatigueEngine.calibFrames.length / fatigueEngine.CALIB_FRAMES) * 100);
-    calibBar.style.width = pct + '%';
-    calibBar.textContent = Math.round(pct) + '%';
-    const calibPct = document.getElementById('calibPct');
-    if (calibPct) calibPct.textContent = Math.round(pct) + '%';
+    showCalib(true);
+    const calibPct = Math.min(100, Math.round((fatigueEngine.calibrationFrames / fatigueEngine.CALIBRATION_FRAMES) * 100));
+    calibBar.style.width = calibPct + '%';
   } else {
     showCalib(false);
   }
 
+  // Evaluate alert level
+  const alertState = alertEngine.evaluate(metrics, now);
+
+  // Draw overlays
+  drawLandmarks(data);
+
   // Update UI gauges
-  updateGauges(state);
-
-  // Face detected badge
-  faceDetectedBadge.className = 'face-badge ' + (faceData.detected ? 'detected' : 'not-detected');
-  faceDetectedBadge.textContent = faceData.detected ? '✓ Face detected' : '✗ No face';
-
-  // Draw landmarks
-  ctx2d.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-  if (faceData.detected) {
-    drawLandmarks(faceData);
-  }
+  updateGauges(metrics, data);
 }
 
-// ── Landmark drawing ──────────────────────────────────────────────────────
-function drawLandmarks(faceData) {
-  const W = overlayCanvas.width;
-  const H = overlayCanvas.height;
+// ── Drawing ───────────────────────────────────────────────────────────────
+function drawLandmarks(data) {
+  const w = overlayCanvas.width;
+  const h = overlayCanvas.height;
 
-  const eyeColor = currentAlertLevel === 'normal' ? '#22C55E' :
-                   currentAlertLevel === 'warning' ? '#F59E0B' :
-                   currentAlertLevel === 'danger' ? '#F97316' : '#EF4444';
-
-  // Draw eyes
-  for (const eye of [faceData.leftEye, faceData.rightEye]) {
-    ctx2d.beginPath();
-    eye.forEach((p, i) => {
-      const x = p.x * W;
-      const y = p.y * H;
-      if (i === 0) ctx2d.moveTo(x, y);
-      else ctx2d.lineTo(x, y);
-    });
-    ctx2d.closePath();
-    ctx2d.strokeStyle = eyeColor;
-    ctx2d.lineWidth = 2;
-    ctx2d.stroke();
-
-    // Subtle glow
-    ctx2d.shadowColor = eyeColor;
-    ctx2d.shadowBlur = 6;
-    ctx2d.stroke();
-    ctx2d.shadowBlur = 0;
-  }
-
-  // Draw mouth
-  ctx2d.beginPath();
-  faceData.mouth.forEach((p, i) => {
-    const x = p.x * W;
-    const y = p.y * H;
-    if (i === 0) ctx2d.moveTo(x, y);
-    else ctx2d.lineTo(x, y);
-  });
-  ctx2d.closePath();
-  ctx2d.strokeStyle = '#3B82F6';
+  // Draw eye landmarks
+  ctx2d.strokeStyle = '#38bdf8';
+  ctx2d.fillStyle = '#38bdf8';
   ctx2d.lineWidth = 1.5;
-  ctx2d.stroke();
 
-  // EAR label
-  const noseX = faceData.headPose.noseTip.x * W;
-  const noseY = faceData.headPose.noseTip.y * H;
-  ctx2d.fillStyle = eyeColor;
-  ctx2d.font = '600 12px "JetBrains Mono", monospace';
-  ctx2d.fillText(`EAR: ${fatigueEngine.currentEAR.toFixed(3)}`, noseX - 35, noseY - 10);
-}
+  const leftEyePts = data.leftEyeRaw || data.leftEye;
+  const rightEyePts = data.rightEyeRaw || data.rightEye;
+  drawPointList(leftEyePts, w, h);
+  drawPointList(rightEyePts, w, h);
 
-// ── Alert UI ──────────────────────────────────────────────────────────────
-function handleAlertLevelChange(level, message) {
-  setAlertUI(level, message);
-  if (level !== 'normal') {
-    renderHistory();
+  // Draw mouth outer
+  ctx2d.strokeStyle = '#f59e0b';
+  ctx2d.fillStyle = '#f59e0b';
+  drawPointList(data.mouthRaw || data.mouth, w, h);
+
+  // Draw inner mouth (yawn area)
+  ctx2d.strokeStyle = '#ef4444';
+  ctx2d.fillStyle = '#ef4444';
+  drawPointList(data.mouthInnerRaw || data.mouthInner, w, h);
+
+  // Draw head pose indicator line from nose to chin
+  const nose = (data.headPose && data.headPose.noseTip) || data.nose;
+  const chin = (data.headPose && data.headPose.chin) || data.chin;
+  if (nose && chin) {
+    ctx2d.strokeStyle = '#a855f7';
+    ctx2d.lineWidth = 2;
+    ctx2d.beginPath();
+    ctx2d.moveTo(nose.x * w, nose.y * h);
+    ctx2d.lineTo(chin.x * w, chin.y * h);
+    ctx2d.stroke();
   }
 }
 
-function setAlertUI(level, message = '') {
-  alertBanner.className = 'alert-banner ' + level;
+function drawPointList(points, w, h) {
+  if (!points || !points.length) return;
+  for (const pt of points) {
+    ctx2d.beginPath();
+    ctx2d.arc(pt.x * w, pt.y * h, 2, 0, 2 * Math.PI);
+    ctx2d.fill();
+  }
+}
+
+// ── UI Updates ────────────────────────────────────────────────────────────
+function updateGauges(metrics, faceData) {
+  // EAR
+  earValue.textContent = metrics.ear ? metrics.ear.toFixed(2) : '—';
+  earValue.className = 'gauge-value ' + (metrics.eyesClosed ? 'danger' : 'safe');
+
+  // MAR
+  marValue.textContent = metrics.mar ? metrics.mar.toFixed(2) : '—';
+  marValue.className = 'gauge-value ' + (metrics.yawning ? 'warning' : 'safe');
+
+  // PERCLOS
+  const perclosPct = Math.round((metrics.perclos || 0) * 100);
+  perclosValue.textContent = perclosPct + '%';
+  const offset = PERCLOS_CIRCUMFERENCE * (1 - (metrics.perclos || 0));
+  perclosArc.style.strokeDashoffset = offset;
+
+  // Arc color based on PERCLOS
+  let arcColor = 'var(--accent-emerald)';
+  if (metrics.perclos >= 0.70) arcColor = 'var(--accent-rose)';
+  else if (metrics.perclos >= 0.40) arcColor = 'var(--accent-amber)';
+  perclosArc.style.stroke = arcColor;
+
+  // Blink rate
+  blinkValue.textContent = metrics.blinkRatePerMin !== undefined ? metrics.blinkRatePerMin : (metrics.blinkRate || 0);
+
+  // Yawn count
+  yawnValue.textContent = metrics.yawnCount || 0;
+
+  // Head tilt & nod
+  const tilt = metrics.headTilt !== undefined ? metrics.headTilt : (faceData && faceData.tilt);
+  const nod = metrics.headNod !== undefined ? metrics.headNod : (faceData && faceData.nod);
+  if (tilt !== undefined && nod !== undefined) {
+    const tiltStr = `${tilt > 0 ? '+' : ''}${Math.round(tilt)}°`;
+    const nodStr = `${nod > 0 ? '+' : ''}${Math.round(nod)}°`;
+    tiltValue.textContent = `${tiltStr} / ${nodStr}`;
+    const headAlert = metrics.headTiltAlert || metrics.headNodAlert || Math.abs(tilt) > 25 || nod < -15;
+    tiltValue.className = 'gauge-value ' + (headAlert ? 'warning' : 'safe');
+  }
+}
+
+function handleAlertLevelChange(level, event) {
+  currentAlertLevel = level;
+
+  // Video border glow
+  const wrapper = document.getElementById('videoWrapper');
+  if (wrapper) {
+    wrapper.className = 'video-wrapper level-' + level;
+  }
+
+  const msgText = typeof event === 'string' ? event : (event && event.message ? event.message : level.toUpperCase());
+
+  // Alert banner
   if (level === 'normal') {
     alertBanner.classList.add('hidden');
   } else {
+    alertBanner.className = 'alert-banner level-' + level;
+    alertMessage.textContent = msgText;
     alertBanner.classList.remove('hidden');
-    alertMessage.textContent = message;
   }
 
-  // Flash the video border
-  const videoWrapper = document.getElementById('videoWrapper');
-  videoWrapper.className = 'video-wrapper level-' + level;
+  // Append to history log
+  renderHistory();
+
+  // Automatically capture snapshot on severe fatigue
+  if (level === 'microsleep' || level === 'danger') {
+    const now = Date.now();
+    if (now - lastAutoSnapTime > 4000) {
+      lastAutoSnapTime = now;
+      captureIncidentSnapshot(level);
+    }
+  }
 }
 
-// ── Gauges ────────────────────────────────────────────────────────────────
-function updateGauges(state) {
-  earValue.textContent = state.ear.toFixed(3);
-  // Show MAR value + yawn charge progress
-  const yawnPct = Math.min(fatigueEngine.yawnFrames, fatigueEngine.YAWN_SUSTAIN_FRAMES);
-  const yawnMax = fatigueEngine.YAWN_SUSTAIN_FRAMES;
-  marValue.textContent = state.yawning
-    ? `${state.mar.toFixed(3)} 😮`
-    : yawnPct > 0
-    ? `${state.mar.toFixed(3)} ⚡${yawnPct}/${yawnMax}`
-    : state.mar.toFixed(3);
-  blinkValue.textContent = state.blinkRatePerMin;
-  yawnValue.textContent = state.yawnCount;
-  tiltValue.textContent = `${state.headTilt.toFixed(1)}° / ${state.headNod.toFixed(1)}°`;
+function captureIncidentSnapshot(trigger = 'manual') {
+  if (!videoEl || !videoEl.videoWidth) {
+    if (!isRunning) {
+      setStatus('Please click "Start" to activate camera first', 'warning');
+      alert('The webcam is not active. Please click "Start" to activate your camera first!');
+    }
+    return;
+  }
 
-  // PERCLOS gauge
-  const pct = Math.min(1, state.perclos);
-  perclosValue.textContent = (pct * 100).toFixed(1) + '%';
-  const offset = PERCLOS_CIRCUMFERENCE * (1 - pct);
-  perclosArc.style.strokeDashoffset = offset;
-  perclosArc.style.stroke =
-    state.microsleep ? '#EF4444' : pct > 0.7 ? '#F97316' : pct > 0.4 ? '#F59E0B' : '#22C55E';
+  try {
+    const off = document.createElement('canvas');
+    off.width = videoEl.videoWidth || 640;
+    off.height = videoEl.videoHeight || 480;
+    const oCtx = off.getContext('2d');
 
-  // Color EAR value
-  earValue.style.color =
-    state.eyesClosed ? '#EF4444' : state.ear < 0.28 ? '#F59E0B' : '#22C55E';
+    // Draw unmirrored frame
+    oCtx.save();
+    oCtx.scale(-1, 1);
+    oCtx.drawImage(videoEl, -off.width, 0, off.width, off.height);
+    oCtx.restore();
 
-  // MAR color — warning when approaching, danger when yawning
-  marValue.style.color = state.yawning ? '#F97316'
-    : yawnPct > 0 ? '#F59E0B'
-    : '';
+    // Telemetry stamp
+    oCtx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    oCtx.fillRect(0, off.height - 34, off.width, 34);
+    oCtx.fillStyle = '#FFFFFF';
+    oCtx.font = 'bold 13px monospace';
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString();
+    oCtx.fillText(`[LOCAL WEBCAM] ${timeStr}  TRIGGER: ${trigger.toUpperCase()}`, 12, off.height - 12);
+
+    const dataUrl = off.toDataURL('image/jpeg', 0.88);
+    const snapObj = {
+      id: Date.now(),
+      dataUrl,
+      trigger,
+      time: timeStr
+    };
+    capturedSnapshots.unshift(snapObj);
+    renderSnapshotsUI();
+    setStatus(`Snapshot captured (${trigger})`, 'active');
+
+    // Also upload to server if running
+    off.toBlob(blob => {
+      if (!blob) return;
+      const fd = new FormData();
+      fd.append('driver_id', 'DRV-101');
+      fd.append('trigger', trigger);
+      fd.append('snapshot', blob, `snap_${Date.now()}.jpg`);
+      fetch('/api/snapshots/upload', { method: 'POST', body: fd }).catch(() => {});
+    }, 'image/jpeg', 0.88);
+  } catch (err) {
+    console.warn('[Snapshot] Error:', err);
+  }
 }
 
-function resetGauges() {
+function renderSnapshotsUI() {
+  if (!snapshotsList) return;
+  if (snapCount) snapCount.textContent = capturedSnapshots.length;
+
+  if (capturedSnapshots.length === 0) {
+    snapshotsList.innerHTML = '<p class="no-history">No snapshots captured yet. Start camera and click 📷 Snapshot.</p>';
+    return;
+  }
+
+  snapshotsList.innerHTML = capturedSnapshots.map(s => `
+    <div style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 8px; margin-bottom: 10px;">
+      <div style="position: relative;">
+        <span style="position: absolute; top: 6px; left: 6px; background: rgba(0,0,0,0.75); padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; color: ${s.trigger === 'microsleep' ? 'var(--accent-rose)' : 'var(--accent-amber)'};">${s.trigger.toUpperCase()}</span>
+        ${s.driverId ? `<span style="position: absolute; top: 6px; right: 6px; background: rgba(0,0,0,0.75); padding: 2px 6px; border-radius: 4px; font-size: 11px; color: #94a3b8;">${s.driverId}</span>` : ''}
+        <img src="${s.dataUrl}" onerror="this.onerror=null; this.src='/api/snapshots/image/${s.id}?fallback=svg';" style="width: 100%; border-radius: 6px; display: block; min-height: 120px; background: #0f172a;" alt="Incident snapshot" />
+      </div>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; font-size: 12px; color: var(--text-muted);">
+        <span>${s.time}</span>
+        <a href="${s.dataUrl}" download="snapshot_${s.id}.jpg" class="btn btn-secondary btn-sm" style="padding: 2px 8px; font-size: 11px; text-decoration: none;">⬇️ Save</a>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function loadInitialSnapshots() {
+  try {
+    const res = await fetch('/api/snapshots/all');
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data && data.snapshots && data.snapshots.length) {
+      data.snapshots.forEach(s => {
+        capturedSnapshots.push({
+          id: s.id,
+          dataUrl: `/api/snapshots/image/${s.id}`,
+          trigger: s.trigger_type || 'incident',
+          time: s.captured_at ? new Date(s.captured_at).toLocaleTimeString() : 'Recent',
+          driverId: s.driver_id
+        });
+      });
+      renderSnapshotsUI();
+    }
+  } catch (_) {}
+}
+loadInitialSnapshots();
+
+if (headerSnapshotBtn) {
+  headerSnapshotBtn.disabled = false;
+  headerSnapshotBtn.addEventListener('click', () => captureIncidentSnapshot('manual'));
+}
+if (tabManualSnapBtn) {
+  tabManualSnapBtn.addEventListener('click', () => captureIncidentSnapshot('manual'));
+}
+
+function updateFaceBadge(detected) {
+  faceDetectedBadge.className = 'face-badge ' + (detected ? 'detected' : 'not-detected');
+  faceDetectedBadge.querySelector('.badge-text').textContent = detected ? '✓ Face tracked' : '✗ No face';
+}
+
+function clearMetricsUI() {
   earValue.textContent = '—';
+  earValue.className = 'gauge-value';
   marValue.textContent = '—';
-  perclosValue.textContent = '0.0%';
+  marValue.className = 'gauge-value';
+  perclosValue.textContent = '0%';
+  perclosArc.style.strokeDashoffset = PERCLOS_CIRCUMFERENCE;
+  perclosArc.style.stroke = 'var(--accent-emerald)';
   blinkValue.textContent = '0';
   yawnValue.textContent = '0';
   tiltValue.textContent = '—';
-  perclosArc.style.strokeDashoffset = PERCLOS_CIRCUMFERENCE;
-  perclosArc.style.stroke = '#22C55E';
-  earValue.style.color = '';
-  marValue.style.color = '';
-  faceDetectedBadge.textContent = '✗ No face';
-  faceDetectedBadge.className = 'face-badge not-detected';
+  tiltValue.className = 'gauge-value';
+  alertBanner.classList.add('hidden');
+  document.getElementById('videoWrapper').className = 'video-wrapper level-normal';
+  updateFaceBadge(false);
+  ctx2d.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
 }
 
-// ── History ───────────────────────────────────────────────────────────────
 function renderHistory() {
   const entries = alertEngine.getHistory();
-  if (entries.length === 0) {
+  if (!entries || !entries.length) {
     historyList.innerHTML = '<p class="no-history">No alerts yet this session.</p>';
     return;
   }
@@ -372,54 +521,6 @@ function renderHistory() {
 }
 
 // ── Settings ──────────────────────────────────────────────────────────────
-sourceToggle.addEventListener('change', async () => {
-  const mode = sourceToggle.value;
-
-  // Show/hide ESP32 section
-  document.getElementById('esp32Section').style.display =
-    mode === 'esp32' ? 'block' : 'none';
-
-  // Update video label
-  videoLabel.textContent = mode === 'esp32' ? 'ESP32-CAM' : 'WEBCAM';
-
-  // Toggle canvas mirror: webcam is mirrored, ESP32 is not
-  applyCanvasMirror(mode);
-
-  // If session is running, switch the live source
-  if (isRunning) {
-    try {
-      await videoSource.switchMode(mode);
-    } catch (err) {
-      setStatus('Switch failed: ' + err.message, 'error');
-      // Revert the dropdown back to the previous mode so the UI stays consistent
-      sourceToggle.value = mode === 'webcam' ? 'esp32' : 'webcam';
-      document.getElementById('esp32Section').style.display =
-        sourceToggle.value === 'esp32' ? 'block' : 'none';
-      return;
-    }
-  }
-
-  // Persist the chosen mode
-  saveSettings();
-});
-
-applyEspBtn.addEventListener('click', () => {
-  const url = esp32UrlInput.value.trim();
-  if (!url) {
-    setEsp32Status('ESP32-CAM: ⚠ Enter a stream URL first');
-    return;
-  }
-  videoSource.setEsp32Url(url);
-  // Always save the URL
-  saveSettings();
-  // If already running in ESP32 mode, reconnect
-  if (isRunning && sourceToggle.value === 'esp32') {
-    videoSource.switchMode('esp32');
-  } else {
-    setEsp32Status('ESP32-CAM: URL saved — click Start to connect');
-  }
-});
-
 applyThreshBtn.addEventListener('click', () => {
   fatigueEngine.updateThresholds({
     earThreshold: parseFloat(earThresholdInput.value),
@@ -433,19 +534,6 @@ function loadSettings() {
     const s = JSON.parse(localStorage.getItem('fatigue_settings') || '{}');
     if (s.earThreshold) earThresholdInput.value = s.earThreshold;
     if (s.marThreshold) marThresholdInput.value = s.marThreshold;
-    if (s.esp32Url) {
-      esp32UrlInput.value = s.esp32Url;
-      videoSource.setEsp32Url(s.esp32Url);
-    }
-    // Default to esp32 mode — avoids webcam permission prompt on load.
-    // Use saved preference if available, otherwise fall back to esp32.
-    const mode = s.sourceMode || 'esp32';
-    sourceToggle.value = mode;
-    document.getElementById('esp32Section').style.display =
-      mode === 'esp32' ? 'block' : 'none';
-    videoLabel.textContent = mode === 'esp32' ? 'ESP32-CAM' : 'WEBCAM';
-    videoSource.mode = mode;
-    applyCanvasMirror(mode);
   } catch (_) {}
 }
 
@@ -453,8 +541,6 @@ function saveSettings() {
   localStorage.setItem('fatigue_settings', JSON.stringify({
     earThreshold: earThresholdInput.value,
     marThreshold: marThresholdInput.value,
-    esp32Url: esp32UrlInput.value,
-    sourceMode: sourceToggle.value,
   }));
 }
 
@@ -482,35 +568,10 @@ function showCalib(show) {
 // ── Canvas mirror helper ──────────────────────────────────
 /**
  * Webcam feed is CSS-mirrored (scaleX(-1)) so the driver sees a natural
- * reflection. ESP32 feed is NOT mirrored. This function keeps the canvas
- * overlay in sync so landmarks always align with the displayed image.
+ * reflection. This keeps the canvas overlay in sync with the webcam feed.
  */
-function applyCanvasMirror(mode) {
-  if (mode === 'esp32') {
-    // Remove mirror on both canvas and the img element
-    overlayCanvas.style.transform = 'none';
-  } else {
-    // Restore mirror for webcam (matches the CSS scaleX(-1) on #videoFeed)
-    overlayCanvas.style.transform = 'scaleX(-1)';
-  }
-}
-
-// ── ESP32 Status pill helper ──────────────────────────────
-function setEsp32Status(message) {
-  if (!esp32Status) return;
-  esp32Status.textContent = message;
-  esp32Status.className = 'esp32-status'; // reset
-  if (message.includes('Connecting')) {
-    esp32Status.classList.add('connecting');
-  } else if (message.includes('Connected')) {
-    esp32Status.classList.add('connected');
-  } else if (
-    message.includes('failed') ||
-    message.includes('error') ||
-    message.includes('⚠')
-  ) {
-    esp32Status.classList.add('error');
-  }
+function applyCanvasMirror() {
+  overlayCanvas.style.transform = 'scaleX(-1)';
 }
 
 // ── Expose globals for inline HTML handlers ───────────────────────────────

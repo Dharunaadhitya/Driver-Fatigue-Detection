@@ -1,9 +1,0 @@
-# DrowsyGuard ESP32-CAM SD Card Configuration
-# Copy this file to the ROOT of your FAT32 microSD card
-# Rename it to config.txt
-
-WIFI_SSID=Dharun
-WIFI_PASS=19022007
-SERVER_IP=YOUR_PC_IP_HERE
-SERVER_PORT=8080
-DRIVER_ID=EMP001

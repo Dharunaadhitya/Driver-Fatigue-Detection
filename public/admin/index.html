@@ -45,6 +45,10 @@
         <span class="nav-icon">⚠️</span>
         <span>Alert Feed</span>
       </a>
+      <a href="#snapshots" class="nav-item" data-view="snapshots">
+        <span class="nav-icon">📷</span>
+        <span>Snapshots</span>
+      </a>
       <a href="#reports" class="nav-item" data-view="reports">
         <span class="nav-icon">📄</span>
         <span>Reports</span>
@@ -417,6 +421,20 @@
         </div>
       </section>
 
+      <!-- ── VIEW 6.5: Fleet Snapshots ───────────────────────── -->
+      <section class="view-section" id="viewSnapshots">
+        <div class="card-header" style="margin-bottom: 0;">
+          <div>
+            <h2 class="card-title" style="font-size: 16px;">Fleet Incident Snapshots</h2>
+            <span class="card-subtitle">All camera captures recorded across drivers and shifts</span>
+          </div>
+          <button class="btn btn-secondary btn-sm" id="btnRefreshFleetSnapshots">🔄 Refresh</button>
+        </div>
+        <div class="snapshots-grid" id="fleetSnapshotsGrid" style="margin-top: 14px;">
+          <!-- Populated dynamically -->
+        </div>
+      </section>
+
       <!-- ── VIEW 7: Settings ──────────────────────────────── -->
       <section class="view-section" id="viewSettings">
         <div class="card" style="max-width: 600px;">
@@ -444,11 +462,6 @@
               <label class="form-label" for="settingMicrosleepFrames">Microsleep Trigger (Frames)</label>
               <span class="form-hint">Continuous closed eye frames (~30 frames/sec)</span>
               <input type="number" id="settingMicrosleepFrames" min="20" max="90" class="form-input" />
-            </div>
-
-            <div class="form-group">
-              <label class="form-label" for="settingEsp32Url">ESP32-CAM MJPEG Stream URL</label>
-              <input type="url" id="settingEsp32Url" class="form-input" />
             </div>
 
             <button type="submit" class="btn btn-primary" style="margin-top: 10px;">

@@ -46,8 +46,8 @@ export class FaceDetector {
         this.faceMesh.setOptions({
           maxNumFaces: 1,
           refineLandmarks: true,
-          minDetectionConfidence: 0.35,  // lowered from 0.5 for ESP32-CAM compatibility
-          minTrackingConfidence: 0.4,    // lowered from 0.5 for ESP32-CAM compatibility
+          minDetectionConfidence: 0.5,
+          minTrackingConfidence: 0.5,
         });
 
         this.faceMesh.onResults((results) => {

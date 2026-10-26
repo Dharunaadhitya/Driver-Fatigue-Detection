@@ -220,7 +220,7 @@
         <label class="form-label" for="driverEmpId">Driver / Employee ID</label>
         <input type="text" id="driverEmpId" class="form-input num" placeholder="e.g. DRV-101" style="text-align: center; font-size: 16px; font-weight: 700; text-transform: uppercase;" autocomplete="off" />
 
-        <label class="form-label" style="margin-top: 8px;">4-Digit Security PIN</label>
+        <label class="form-label" style="margin-top: 10px;">4-Digit Security PIN</label>
         <div class="pin-display" id="driverPinDisplay">····</div>
       </div>
 
@@ -243,6 +243,12 @@
         Start Shift & Access In-Cab Kiosk
       </button>
     </form>
+
+    <div style="margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--border); text-align: center;">
+      <a href="/" style="color: var(--primary); font-size: 13px; text-decoration: none; font-weight: 500;">
+        👁️ Open Live Instant Webcam Detector →
+      </a>
+    </div>
   </div>
 </div>
 
@@ -404,6 +410,7 @@
 
       localStorage.setItem('drowsyguard_driver_token', data.token);
       localStorage.setItem('drowsyguard_driver', JSON.stringify(data.driver));
+      localStorage.setItem('drowsyguard_driver_profile', JSON.stringify(data.driver));
       showToast(`Shift verified for ${data.driver.name}`, 'success');
 
       setTimeout(() => {

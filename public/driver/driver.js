@@ -45,14 +45,10 @@ let currentPin = '';
 const preTripName = document.getElementById('preTripName');
 const preTripDetails = document.getElementById('preTripDetails');
 const preTripAvatar = document.getElementById('preTripAvatar');
-const preTripCameraSelect = document.getElementById('preTripCameraSelect');
-const preTripStreamUrl = document.getElementById('preTripStreamUrl');
-const esp32UrlGroup = document.getElementById('esp32UrlGroup');
 const preTripCalibInfo = document.getElementById('preTripCalibInfo');
 
 // Active Trip Elements
 const kioskVideo = document.getElementById('kioskVideo');
-const kioskEsp32 = document.getElementById('kioskEsp32');
 const kioskCanvas = document.getElementById('kioskCanvas');
 const ctx = kioskCanvas.getContext('2d');
 const kioskVideoWrapper = document.getElementById('kioskVideoWrapper');
@@ -191,159 +187,27 @@ document.getElementById('preTripLogoutBtn').addEventListener('click', () => {
 });
 
 // ── Canvas Mirror Helper ──────────────────────────────────────────────────
-function applyCanvasMirror(mode) {
-  if (mode === 'esp32') {
-    kioskCanvas.style.transform = 'none';
-  } else {
-    kioskCanvas.style.transform = 'scaleX(-1)';
-  }
+function applyCanvasMirror() {
+  kioskCanvas.style.transform = 'scaleX(-1)';
 }
-
-// Camera selection
-preTripCameraSelect.addEventListener('change', () => {
-  const isEsp = preTripCameraSelect.value === 'esp32';
-  esp32UrlGroup.style.display = isEsp ? 'block' : 'none';
-  kioskSourceLabel.textContent = isEsp ? 'ESP32-CAM' : 'WEBCAM';
-});
 
 // Test Stream Button
 const testStreamBtn = document.getElementById('testStreamBtn');
 const preTripCameraStatus = document.getElementById('preTripCameraStatus');
 if (testStreamBtn) {
   testStreamBtn.addEventListener('click', async () => {
-    const mode = preTripCameraSelect.value;
     preTripCameraStatus.textContent = 'Testing…';
     preTripCameraStatus.className = 'status-chip warning';
-
-    if (mode === 'webcam') {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        stream.getTracks().forEach(t => t.stop());
-        preTripCameraStatus.textContent = 'Webcam Ready ✓';
-        preTripCameraStatus.className = 'status-chip safe';
-        showToast('Webcam connection confirmed', 'success');
-      } catch (err) {
-        preTripCameraStatus.textContent = 'Webcam Denied ✗';
-        preTripCameraStatus.className = 'status-chip offline';
-        showToast('Webcam access error: ' + err.message, 'error');
-      }
-    } else {
-      const url = preTripStreamUrl.value.trim() || '/esp32/stream';
-      const testImg = new Image();
-      testImg.onload = () => {
-        preTripCameraStatus.textContent = 'ESP32 Linked ✓';
-        preTripCameraStatus.className = 'status-chip safe';
-        showToast('ESP32 stream reachable', 'success');
-      };
-      testImg.onerror = () => {
-        preTripCameraStatus.textContent = 'ESP32 Offline ✗';
-        preTripCameraStatus.className = 'status-chip offline';
-        showToast('ESP32 stream unreachable. Please check WiFi or use Webcam.', 'error');
-      };
-      testImg.src = url + '?t=' + Date.now();
-    }
-  });
-}
-
-// HUD Camera Quick Switch Button
-const hudSwitchCameraBtn = document.getElementById('hudSwitchCameraBtn');
-if (hudSwitchCameraBtn) {
-  hudSwitchCameraBtn.addEventListener('click', async () => {
-    const newMode = videoSource.mode === 'webcam' ? 'esp32' : 'webcam';
     try {
-      await videoSource.switchMode(newMode);
-      applyCanvasMirror(newMode);
-      kioskSourceLabel.textContent = newMode === 'webcam' ? 'WEBCAM' : 'ESP32-CAM';
-      showToast(`Switched camera to ${newMode === 'webcam' ? 'Webcam' : 'ESP32-CAM'}`, 'info');
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      stream.getTracks().forEach(t => t.stop());
+      preTripCameraStatus.textContent = 'Webcam Ready ✓';
+      preTripCameraStatus.className = 'status-chip safe';
+      showToast('Webcam connection confirmed', 'success');
     } catch (err) {
-      showToast('Camera switch failed: ' + err.message, 'error');
-    }
-  });
-}
-
-// ── Camera Image Tuning Controls ──────────────────────────────────────────
-const hudTuneCameraBtn = document.getElementById('hudTuneCameraBtn');
-const cameraTunePanel = document.getElementById('cameraTunePanel');
-const tuneCloseBtn = document.getElementById('tuneCloseBtn');
-const tuneSat = document.getElementById('tuneSat');
-const tuneContrast = document.getElementById('tuneContrast');
-const tuneBright = document.getElementById('tuneBright');
-const tuneQuality = document.getElementById('tuneQuality');
-const valSat = document.getElementById('valSat');
-const valContrast = document.getElementById('valContrast');
-const valBright = document.getElementById('valBright');
-const btnAutoTune = document.getElementById('btnAutoTune');
-
-if (hudTuneCameraBtn && cameraTunePanel) {
-  hudTuneCameraBtn.addEventListener('click', () => {
-    const isHidden = cameraTunePanel.style.display === 'none';
-    cameraTunePanel.style.display = isHidden ? 'block' : 'none';
-  });
-}
-
-if (tuneCloseBtn && cameraTunePanel) {
-  tuneCloseBtn.addEventListener('click', () => {
-    cameraTunePanel.style.display = 'none';
-  });
-}
-
-async function sendCameraControl(varName, val) {
-  try {
-    await fetch('/api/camera/control', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ var: varName, val: parseInt(val, 10) })
-    });
-  } catch (err) {
-    console.warn('Camera control error:', err);
-  }
-}
-
-if (tuneSat) {
-  tuneSat.addEventListener('input', (e) => {
-    valSat.textContent = (e.target.value > 0 ? '+' : '') + e.target.value;
-  });
-  tuneSat.addEventListener('change', (e) => {
-    sendCameraControl('saturation', e.target.value);
-  });
-}
-
-if (tuneContrast) {
-  tuneContrast.addEventListener('input', (e) => {
-    valContrast.textContent = (e.target.value > 0 ? '+' : '') + e.target.value;
-  });
-  tuneContrast.addEventListener('change', (e) => {
-    sendCameraControl('contrast', e.target.value);
-  });
-}
-
-if (tuneBright) {
-  tuneBright.addEventListener('input', (e) => {
-    valBright.textContent = (e.target.value > 0 ? '+' : '') + e.target.value;
-  });
-  tuneBright.addEventListener('change', (e) => {
-    sendCameraControl('brightness', e.target.value);
-  });
-}
-
-if (tuneQuality) {
-  tuneQuality.addEventListener('change', (e) => {
-    sendCameraControl('quality', e.target.value);
-    showToast(`Camera compression set to ${e.target.options[e.target.selectedIndex].text}`, 'info');
-  });
-}
-
-if (btnAutoTune) {
-  btnAutoTune.addEventListener('click', async () => {
-    try {
-      await fetch('/api/camera/tune', { method: 'POST' });
-      if (tuneSat) { tuneSat.value = 1; valSat.textContent = '+1'; }
-      if (tuneContrast) { tuneContrast.value = 1; valContrast.textContent = '+1'; }
-      if (tuneBright) { tuneBright.value = 0; valBright.textContent = '0'; }
-      if (tuneQuality) { tuneQuality.value = 10; }
-      showToast('Camera auto-calibrated: rich color & high sharpness ✓', 'success');
-    } catch (err) {
-      showToast('Auto-tuning error: ' + err.message, 'error');
+      preTripCameraStatus.textContent = 'Webcam Denied ✗';
+      preTripCameraStatus.className = 'status-chip offline';
+      showToast('Webcam access error: ' + err.message, 'error');
     }
   });
 }
@@ -438,15 +302,9 @@ if (btnResumeBreak) {
 
 // ── Begin Trip Shift Action ───────────────────────────────────────────────
 document.getElementById('beginTripBtn').addEventListener('click', async () => {
-  const mode = preTripCameraSelect.value;
-  const streamUrl = preTripStreamUrl.value.trim() || '/esp32/stream';
-
-  videoSource.mode = mode;
-  if (mode === 'esp32') {
-    videoSource.setEsp32Url(streamUrl);
-  }
-  applyCanvasMirror(mode);
-  kioskSourceLabel.textContent = mode === 'webcam' ? 'WEBCAM' : 'ESP32-CAM';
+  videoSource.mode = 'webcam';
+  applyCanvasMirror();
+  kioskSourceLabel.textContent = 'WEBCAM';
 
   try {
     // 1. Initialize face detection engine if not already loaded
@@ -456,7 +314,7 @@ document.getElementById('beginTripBtn').addEventListener('click', async () => {
     }
 
     // 2. Start Video Source
-    await videoSource.start(kioskVideo, kioskEsp32);
+    await videoSource.start(kioskVideo);
 
     // 3. Register trip with backend
     const res = await fetch('/api/trips', {
@@ -478,6 +336,66 @@ document.getElementById('beginTripBtn').addEventListener('click', async () => {
 
     // Wire alert engine incident transitions
     let lastSnapshotTriggerTime = 0;
+
+    async function captureWebcamSnapshot(triggerType = 'microsleep') {
+      if (!kioskVideo || !kioskVideo.videoWidth) {
+        console.warn('[Snapshot] Webcam not ready for capture');
+        return;
+      }
+      try {
+        const snapCanvas = document.createElement('canvas');
+        snapCanvas.width = kioskVideo.videoWidth || 640;
+        snapCanvas.height = kioskVideo.videoHeight || 480;
+        const sCtx = snapCanvas.getContext('2d');
+
+        // Un-mirror frame for clean photo
+        sCtx.save();
+        sCtx.scale(-1, 1);
+        sCtx.drawImage(kioskVideo, -snapCanvas.width, 0, snapCanvas.width, snapCanvas.height);
+        sCtx.restore();
+
+        // Stamped telemetry bar
+        sCtx.fillStyle = 'rgba(0, 0, 0, 0.65)';
+        sCtx.fillRect(0, snapCanvas.height - 34, snapCanvas.width, 34);
+        sCtx.fillStyle = '#FFFFFF';
+        sCtx.font = 'bold 13px monospace';
+        const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 19);
+        const empId = (currentDriver && (currentDriver.empId || currentDriver.employee_id)) || 'DRV-101';
+        sCtx.fillText(`[${empId}] ${nowStr}  INCIDENT: ${triggerType.toUpperCase()}`, 12, snapCanvas.height - 12);
+
+        snapCanvas.toBlob(async (blob) => {
+          if (!blob) return;
+          const formData = new FormData();
+          formData.append('driver_id', empId);
+          formData.append('trigger', triggerType);
+          formData.append('snapshot', blob, `snap_${Date.now()}.jpg`);
+
+          try {
+            const res = await fetch('/api/snapshots/upload', {
+              method: 'POST',
+              headers: driverToken ? { 'Authorization': `Bearer ${driverToken}` } : {},
+              body: formData
+            });
+            if (res.ok) {
+              const resData = await res.json();
+              console.log('[Snapshot] Webcam incident snapshot saved:', resData);
+              showToast(`📸 Incident snapshot saved (${triggerType})`, 'info');
+            }
+          } catch (err) {
+            console.warn('[Snapshot] Upload fetch error:', err);
+          }
+        }, 'image/jpeg', 0.88);
+      } catch (err) {
+        console.warn('[Snapshot] Frame capture error:', err);
+      }
+    }
+
+    const hudSnapshotBtn = document.getElementById('hudSnapshotBtn');
+    if (hudSnapshotBtn) {
+      hudSnapshotBtn.onclick = () => captureWebcamSnapshot('manual');
+    }
+    window.captureWebcamSnapshot = captureWebcamSnapshot;
+
     alertEngine.onLevelChange = (level, message) => {
       if (level === 'warning') {
         counts.warnings++;
@@ -490,19 +408,12 @@ document.getElementById('beginTripBtn').addEventListener('click', async () => {
         tripMicrosleepCount.textContent = counts.microsleeps;
       }
 
-      // Fire-and-forget incident snapshot capture to ESP32 on severe fatigue
-      if ((level === 'microsleep' || level === 'danger') && driverToken) {
+      // Automatically capture snapshot on severe fatigue
+      if (level === 'microsleep' || level === 'danger') {
         const now = Date.now();
-        if (now - lastSnapshotTriggerTime > 8000) {
+        if (now - lastSnapshotTriggerTime > 4000) {
           lastSnapshotTriggerTime = now;
-          fetch('/api/snapshots/trigger', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${driverToken}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ trigger: level })
-          }).catch(() => {});
+          captureWebcamSnapshot(level);
         }
       }
     };

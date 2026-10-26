@@ -47,12 +47,18 @@
       <button class="btn btn-secondary" id="stopBtn" disabled>
         <span class="btn-icon" aria-hidden="true">■</span> Stop
       </button>
+      <button class="btn btn-secondary" id="headerSnapshotBtn" title="Capture webcam snapshot" disabled>
+        <span class="btn-icon" aria-hidden="true">📷</span> Snapshot
+      </button>
       <button class="btn btn-ghost" id="resetBtn" title="Reset detection and session stats">
         <span class="btn-icon" aria-hidden="true">↺</span> Reset
       </button>
       <button class="btn btn-ghost" id="muteBtn" title="Toggle audio alarms">
         <span class="btn-icon" aria-hidden="true">🔊</span> Mute
       </button>
+      <a href="/login" class="btn btn-ghost" style="text-decoration:none;" title="Common Portal Login">🔑 Sign In</a>
+      <a href="/driver" class="btn btn-ghost" style="text-decoration:none;" title="In-Cab Driver Station Kiosk">🚛 Driver Kiosk</a>
+      <a href="/admin" class="btn btn-ghost" style="text-decoration:none;" title="Fleet Administration Portal">🏢 Admin</a>
       <button class="btn btn-ghost btn-icon-only" id="themeToggle" aria-label="Switch to light theme" title="Toggle dark/light theme">
         <span id="themeIcon" aria-hidden="true">☀️</span>
       </button>
@@ -75,7 +81,6 @@
       <div class="video-area">
         <div class="video-wrapper level-normal" id="videoWrapper">
           <video id="videoFeed" autoplay muted playsinline></video>
-          <img id="esp32Feed" alt="ESP32-CAM Live Stream" />
           <canvas id="overlayCanvas"></canvas>
 
           <!-- Face detected badge -->
@@ -85,7 +90,7 @@
           </div>
 
           <!-- Video label -->
-          <div class="video-label" id="videoLabel">ESP32-CAM</div>
+          <div class="video-label" id="videoLabel">WEBCAM</div>
         </div>
 
         <!-- Calibration Progress -->
@@ -153,6 +158,7 @@
     <aside class="right-panel" aria-label="Configuration & Event Logs">
       <div class="panel-tabs" role="tablist">
         <button class="panel-tab active" id="tabHistory" onclick="switchTab('history')" role="tab" aria-selected="true" aria-controls="paneHistory">Alert History</button>
+        <button class="panel-tab" id="tabSnapshots" onclick="switchTab('snapshots')" role="tab" aria-selected="false" aria-controls="paneSnapshots">📷 Snapshots (<span id="snapCount">0</span>)</button>
         <button class="panel-tab" id="tabSettings" onclick="switchTab('settings')" role="tab" aria-selected="false" aria-controls="paneSettings">Settings</button>
       </div>
 
@@ -169,32 +175,26 @@
           </div>
         </div>
 
+        <!-- Snapshots Tab -->
+        <div class="tab-pane" id="paneSnapshots" role="tabpanel" aria-labelledby="tabSnapshots">
+          <div class="history-header">
+            <span class="history-title">Captured Incident Frames</span>
+            <button class="btn btn-secondary btn-sm" id="tabManualSnapBtn">📷 Take Snapshot</button>
+          </div>
+          <div id="snapshotsList">
+            <p class="no-history">No snapshots captured yet. Trigger microsleep/danger or click 📷 Snapshot.</p>
+          </div>
+        </div>
+
         <!-- Settings Tab -->
         <div class="tab-pane" id="paneSettings" role="tabpanel" aria-labelledby="tabSettings">
 
           <!-- Video Source -->
           <div class="settings-section">
             <div class="settings-title">Video Source</div>
-
             <div class="setting-row">
-              <label class="setting-label" for="sourceToggle">Source Mode</label>
-              <select id="sourceToggle" class="form-select">
-                <option value="esp32" selected>📡 ESP32-CAM</option>
-                <option value="webcam">🎥 Webcam</option>
-              </select>
-            </div>
-
-            <div id="esp32Section">
-              <div class="esp32-badge">📡 ESP32-CAM Stream</div>
-              <div class="setting-row">
-                <label class="setting-label" for="esp32Url">Stream URL</label>
-                <div class="setting-hint">Served via local proxy — edit <code>config.json</code> to configure camera IP</div>
-                <input type="url" id="esp32Url" class="form-input" placeholder="/esp32/stream" value="/esp32/stream" />
-              </div>
-              <div class="esp32-actions">
-                <button class="btn btn-secondary btn-sm" id="applyEspBtn">Connect Stream</button>
-                <span class="esp32-status" id="esp32Status">⬤ Not connected</span>
-              </div>
+              <span class="setting-label">Camera</span>
+              <div class="setting-hint">Standard Webcam (via browser MediaDevices)</div>
             </div>
           </div>
 

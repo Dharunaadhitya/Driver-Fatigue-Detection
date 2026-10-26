@@ -115,6 +115,7 @@ const viewSections = {
   drivers: document.getElementById('viewDrivers'),
   driverProfile: document.getElementById('viewDriverProfile'),
   alerts: document.getElementById('viewAlerts'),
+  snapshots: document.getElementById('viewSnapshots'),
   reports: document.getElementById('viewReports'),
   settings: document.getElementById('viewSettings'),
 };
@@ -125,6 +126,7 @@ const viewTitles = {
   drivers: 'Commercial Driver Roster',
   driverProfile: 'Operator Performance Dossier',
   alerts: 'Real-Time Alert Feed',
+  snapshots: 'Fleet Incident Snapshots',
   reports: 'Safety & Compliance Reports',
   settings: 'System Configuration',
 };
@@ -166,6 +168,7 @@ function navigate() {
   else if (route === 'drivers') loadDrivers();
   else if (route === 'driverProfile' && param) loadDriverProfile(param);
   else if (route === 'alerts') loadAlertsFeed();
+  else if (route === 'snapshots') loadFleetSnapshots();
   else if (route === 'reports') loadReports();
   else if (route === 'settings') loadSettings();
 }
@@ -639,7 +642,7 @@ async function loadDriverSnapshots(driverId) {
         <div class="snapshot-card" data-snap-id="${snap.id}">
           <div class="snapshot-thumb-wrap">
             <span class="snapshot-badge ${badgeClass}">${snap.trigger_type || 'incident'}</span>
-            <img class="snapshot-thumb-img" src="/api/snapshots/image/${snap.id}?token=${encodeURIComponent(token)}" alt="${snap.filename}" loading="lazy" />
+            <img class="snapshot-thumb-img" src="/api/snapshots/image/${snap.id}?token=${encodeURIComponent(token)}" onerror="this.onerror=null; this.src='/api/snapshots/image/${snap.id}?fallback=svg';" alt="${snap.filename}" loading="lazy" />
           </div>
           <div class="snapshot-card-info">
             <div class="snapshot-time">${timeStr}</div>
@@ -674,6 +677,72 @@ if (refreshSnapshotsBtn) {
       loadDriverSnapshots(currentProfileDriverId);
     }
   });
+}
+
+async function loadFleetSnapshots() {
+  const grid = document.getElementById('fleetSnapshotsGrid');
+  if (!grid) return;
+
+  grid.innerHTML = `
+    <div class="snapshot-skeleton"></div>
+    <div class="snapshot-skeleton"></div>
+    <div class="snapshot-skeleton"></div>
+    <div class="snapshot-skeleton"></div>
+  `;
+
+  try {
+    const data = await api('/api/snapshots/all');
+    const snapshots = (data && data.snapshots) ? data.snapshots : [];
+
+    if (snapshots.length === 0) {
+      grid.innerHTML = `
+        <div class="snapshots-empty" style="grid-column: 1 / -1;">
+          <div style="font-size: 36px; margin-bottom: 8px;">📷</div>
+          <div style="font-weight: 600; font-size: 15px; color: var(--text);">No Fleet Incident Snapshots</div>
+          <div style="color: var(--text-muted); margin-top: 4px;">Camera captures recorded during shifts will appear here.</div>
+        </div>
+      `;
+      return;
+    }
+
+    grid.innerHTML = snapshots.map(snap => {
+      const badgeClass = snap.trigger_type || 'warning';
+      const timeStr = snap.captured_at ? new Date(snap.captured_at).toLocaleString() : 'Recent';
+      return `
+        <div class="snapshot-card" data-snap-id="${snap.id}">
+          <div class="snapshot-thumb-wrap">
+            <span class="snapshot-badge ${badgeClass}">${snap.trigger_type || 'incident'}</span>
+            <img class="snapshot-thumb-img" src="/api/snapshots/image/${snap.id}?token=${encodeURIComponent(token)}" onerror="this.onerror=null; this.src='/api/snapshots/image/${snap.id}?fallback=svg';" alt="${snap.filename}" loading="lazy" />
+          </div>
+          <div class="snapshot-card-info">
+            <div style="font-weight: 600; font-size: 13px; color: var(--text);">Driver: ${snap.driver_id}</div>
+            <div class="snapshot-time">${timeStr}</div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    grid.querySelectorAll('.snapshot-card').forEach(card => {
+      const snapId = parseInt(card.getAttribute('data-snap-id'), 10);
+      const snap = snapshots.find(s => s.id === snapId);
+      card.addEventListener('click', () => {
+        if (snap) openSnapshotLightbox(snap);
+      });
+    });
+
+  } catch (err) {
+    grid.innerHTML = `
+      <div class="snapshots-empty" style="grid-column: 1 / -1;">
+        <div style="color: var(--critical); font-weight: 600;">Failed to load fleet snapshots</div>
+        <div style="color: var(--text-muted); margin-top: 4px;">${err.message}</div>
+      </div>
+    `;
+  }
+}
+
+const btnRefreshFleetSnapshots = document.getElementById('btnRefreshFleetSnapshots');
+if (btnRefreshFleetSnapshots) {
+  btnRefreshFleetSnapshots.addEventListener('click', loadFleetSnapshots);
 }
 
 async function viewAlertSnapshot(driverId, employeeId, alertTimestamp, alertType) {
@@ -892,7 +961,6 @@ async function loadSettings() {
     document.getElementById('settingMar').value = data.settings.marThreshold || 0.60;
     document.getElementById('settingPerclosWarn').value = data.settings.perclosWarningPct || 40;
     document.getElementById('settingMicrosleepFrames').value = data.settings.microsleepFrames || 45;
-    document.getElementById('settingEsp32Url').value = data.settings.esp32StreamUrl || '';
   } catch (err) {
     showToast(err.message, 'error');
   }
@@ -904,12 +972,11 @@ document.getElementById('settingsForm').addEventListener('submit', async (e) => 
   const marThreshold = document.getElementById('settingMar').value;
   const perclosWarningPct = document.getElementById('settingPerclosWarn').value;
   const microsleepFrames = document.getElementById('settingMicrosleepFrames').value;
-  const esp32StreamUrl = document.getElementById('settingEsp32Url').value;
 
   try {
     await api('/api/settings', {
       method: 'PATCH',
-      body: JSON.stringify({ earMultiplier, marThreshold, perclosWarningPct, microsleepFrames, esp32StreamUrl })
+      body: JSON.stringify({ earMultiplier, marThreshold, perclosWarningPct, microsleepFrames })
     });
     showToast('Fleet settings saved successfully', 'success');
   } catch (err) {

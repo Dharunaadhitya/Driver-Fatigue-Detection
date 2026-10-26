@@ -77,18 +77,8 @@
 
       <div class="card">
         <h3 class="card-title" style="margin-bottom: 12px;">In-Cab Camera Configuration</h3>
-
-        <div class="form-group">
-          <label class="form-label" for="preTripCameraSelect">Select Video Source</label>
-          <select id="preTripCameraSelect" class="form-select">
-            <option value="webcam" selected>🎥 In-Cab USB / Laptop Webcam</option>
-            <option value="esp32">📡 ESP32-CAM (Via Server Proxy)</option>
-          </select>
-        </div>
-
-        <div class="form-group" id="esp32UrlGroup" style="display: none;">
-          <label class="form-label" for="preTripStreamUrl">ESP32 Stream Endpoint</label>
-          <input type="url" id="preTripStreamUrl" class="form-input num" value="/esp32/stream" />
+        <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 10px;">
+          Using in-cab webcam for driver face telemetry and fatigue monitoring.
         </div>
 
         <div style="display: flex; align-items: center; gap: 10px; margin-top: 10px;">
@@ -124,8 +114,7 @@
       <div style="display: flex; align-items: center; gap: 14px;">
         <span class="status-chip safe" id="hudStatusChip">Safe</span>
         <div class="timer tabular-nums" id="hudTripTimer" style="font-size: 14px; font-weight: 700; background: var(--surface-2); padding: 4px 10px; border-radius: var(--radius-sm);">00:00:00</div>
-        <button class="btn btn-secondary btn-sm" id="hudSwitchCameraBtn" title="Switch between Webcam and ESP32-CAM">📷 Switch Camera</button>
-        <button class="btn btn-secondary btn-sm" id="hudTuneCameraBtn" title="Fine-tune camera image quality & colors">⚙️ Camera Quality</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="hudSnapshotBtn" title="Capture Webcam Snapshot">📷 Snapshot</button>
         <button class="btn btn-secondary btn-sm" id="hudBreakBtn">⏸ Take Break</button>
         <button class="btn btn-danger btn-sm" id="hudEndTripBtn">■ End Trip</button>
       </div>
@@ -138,7 +127,6 @@
       <div class="kiosk-video-column">
         <div class="kiosk-video-wrapper level-normal" id="kioskVideoWrapper">
           <video id="kioskVideo" autoplay muted playsinline></video>
-          <img id="kioskEsp32" alt="ESP32 Stream" />
           <canvas id="kioskCanvas"></canvas>
 
           <span class="status-chip safe" id="kioskFaceBadge" style="position: absolute; top: 14px; left: 14px; z-index: 10;">
@@ -148,43 +136,6 @@
           <span class="card-subtitle num" id="kioskSourceLabel" style="position: absolute; bottom: 12px; right: 14px; z-index: 10; background: rgba(0,0,0,0.6); padding: 3px 8px; border-radius: 4px;">
             WEBCAM
           </span>
-
-          <!-- Camera Quality Tuning Overlay Panel -->
-          <div class="camera-tune-panel" id="cameraTunePanel" style="display: none;">
-            <div class="camera-tune-header">
-              <span style="font-weight: 700; font-size: 13px;">⚙️ ESP32-CAM Quality Tuning</span>
-              <button type="button" class="tune-close-btn" id="tuneCloseBtn">✕</button>
-            </div>
-            <div class="camera-tune-body">
-              <div class="tune-row">
-                <label><span>Saturation</span> <span id="valSat">+1</span></label>
-                <input type="range" id="tuneSat" min="-2" max="2" value="1" step="1" />
-              </div>
-              <div class="tune-row">
-                <label><span>Contrast</span> <span id="valContrast">+1</span></label>
-                <input type="range" id="tuneContrast" min="-2" max="2" value="1" step="1" />
-              </div>
-              <div class="tune-row">
-                <label><span>Brightness</span> <span id="valBright">0</span></label>
-                <input type="range" id="tuneBright" min="-2" max="2" value="0" step="1" />
-              </div>
-              <div class="tune-row">
-                <label><span>Compression</span> <span id="valQuality">Crisp (10)</span></label>
-                <select id="tuneQuality" class="form-select form-select-sm" style="font-size: 12px; padding: 4px 8px;">
-                  <option value="10" selected>Crisp High-Def (10)</option>
-                  <option value="12">Standard Quality (12)</option>
-                  <option value="16">Balanced (16)</option>
-                  <option value="25">Low Bandwidth (25)</option>
-                </select>
-              </div>
-              <div class="tune-actions" style="margin-top: 6px;">
-                <button type="button" class="btn btn-primary btn-sm" id="btnAutoTune" style="width: 100%;">✨ Auto-Calibrate Image</button>
-              </div>
-              <div class="tune-tip">
-                💡 <strong>Lens Focus Tip:</strong> If the feed looks blurry, gently twist the knurled camera lens ring clockwise or counter-clockwise on the ESP32 module until facial details become pin-sharp.
-              </div>
-            </div>
-          </div>
 
           <!-- In-Cab Shift Paused / Rest Break Overlay -->
           <div class="kiosk-break-overlay" id="kioskBreakOverlay" style="display: none;">

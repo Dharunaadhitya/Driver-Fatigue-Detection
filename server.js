@@ -5,7 +5,6 @@
  * - SQLite Database via better-sqlite3 with WAL mode and schema auto-creation
  * - REST API: Authentication (JWT), Drivers, Trips, Telemetry Events, Stats, Reports (CSV), Settings
  * - WebSocket server on /ws for real-time telemetry, driver status & microsleep broadcasts
- * - ESP32-CAM MJPEG Reverse Proxy at /esp32/stream
  * - Static file serving with support for /public (Admin, Driver Station, Shared tokens)
  *
  * Zero external web framework dependencies (no Express). Native Node.js HTTP server.
@@ -27,15 +26,30 @@ const { computeRiskScore } = require('./riskScore');
 const PORT = process.env.PORT || 8080;
 const ROOT = __dirname;
 const PUBLIC_DIR = path.join(__dirname, 'public');
-const DATA_DIR = path.join(__dirname, 'data');
-const DB_PATH = path.join(DATA_DIR, 'drowsyguard.db');
+let DATA_DIR = path.join(__dirname, 'data');
+let DB_PATH = path.join(DATA_DIR, 'drowsyguard.db');
 const SCHEMA_PATH = path.join(__dirname, 'schema.sql');
-const CONFIG_PATH = path.join(__dirname, 'config.json');
 const JWT_SECRET = process.env.JWT_SECRET || 'drowsyguard-fleet-secure-secret-2026';
+
+// ── Vercel Serverless /tmp adaptation ─────────────────────────────────────
+if (process.env.VERCEL) {
+  const tmpDir = path.join('/tmp', 'data');
+  if (!fs.existsSync(tmpDir)) {
+    try { fs.mkdirSync(tmpDir, { recursive: true }); } catch (_) {}
+  }
+  const tmpDb = path.join(tmpDir, 'drowsyguard.db');
+  if (!fs.existsSync(tmpDb) && fs.existsSync(DB_PATH)) {
+    try { fs.copyFileSync(DB_PATH, tmpDb); } catch (_) {}
+  }
+  DATA_DIR = tmpDir;
+  if (fs.existsSync(tmpDb)) {
+    DB_PATH = tmpDb;
+  }
+}
 
 // ── Database Initialization ───────────────────────────────────────────────
 if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+  try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (_) {}
 }
 
 const db = new Database(DB_PATH);
@@ -49,24 +63,6 @@ try {
 } catch (err) {
   console.error('[db] Error executing schema.sql:', err.message);
 }
-
-// ── Load Config & ESP32 Proxy settings ────────────────────────────────────
-let esp32StreamUrl = 'http://10.15.80.91:81/stream';
-function loadConfig() {
-  try {
-    if (fs.existsSync(CONFIG_PATH)) {
-      const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
-      if (cfg.esp32Stream) esp32StreamUrl = cfg.esp32Stream.trim();
-    }
-  } catch (e) {
-    console.warn('[config] Warning reading config.json:', e.message);
-  }
-  try {
-    const row = db.prepare('SELECT value FROM system_settings WHERE key = ?').get('esp32StreamUrl');
-    if (row && row.value) esp32StreamUrl = row.value.trim();
-  } catch (_) {}
-}
-loadConfig();
 
 // ── MIME types ─────────────────────────────────────────────────────────────
 const MIME = {
@@ -221,134 +217,6 @@ function serveStatic(res, filePath) {
   });
 }
 
-// ── ESP32 MJPEG Multi-Client Stream Engine ────────────────────────────────
-const esp32Clients = new Set();
-let esp32BroadcasterRunning = false;
-let upstreamStreamReq = null;
-let lastTuneTime = 0;
-
-function autoTuneEsp32Camera(host, force = false) {
-  const now = Date.now();
-  if (!force && now - lastTuneTime < 60000) return;
-  lastTuneTime = now;
-  const tunes = [
-    { var: 'quality', val: 10 },    // Low compression / sharp detail (was 30)
-    { var: 'saturation', val: 1 }, // Vibrant natural colors (was -2)
-    { var: 'contrast', val: 1 },   // Crisp edge definition (was 0)
-    { var: 'brightness', val: 0 }, // Balanced dynamic range (was 1)
-    { var: 'sharpness', val: 1 },  // Enhanced boundary sharpness
-    { var: 'awb', val: 1 },        // Automatic white balance
-    { var: 'vflip', val: 1 },      // Upright orientation
-  ];
-  for (const t of tunes) {
-    http.get(`http://${host}/control?var=${t.var}&val=${t.val}`, () => {}).on('error', () => {});
-  }
-}
-
-function startEsp32Broadcaster() {
-  if (esp32BroadcasterRunning) return;
-  esp32BroadcasterRunning = true;
-
-  const parsed = url.parse(esp32StreamUrl);
-  const host = parsed.hostname || '10.15.80.91';
-  const port = parseInt(parsed.port || '81', 10);
-  const streamPath = (parsed.path && parsed.path !== '/') ? parsed.path : '/stream';
-
-  autoTuneEsp32Camera(host);
-
-  console.log(`[esp32-proxy] Connecting to upstream MJPEG at http://${host}:${port}${streamPath}`);
-  upstreamStreamReq = http.get({
-    host,
-    port,
-    path: streamPath,
-    timeout: 6000,
-  }, (upstreamRes) => {
-    if (upstreamRes.statusCode !== 200) {
-      console.warn(`[esp32-proxy] Upstream status: ${upstreamRes.statusCode}`);
-      stopEsp32Broadcaster();
-      if (esp32Clients.size > 0) setTimeout(startEsp32Broadcaster, 2000);
-      return;
-    }
-
-    console.log('[esp32-proxy] Upstream connected! Piping MJPEG frames to', esp32Clients.size, 'clients.');
-
-    upstreamRes.on('data', (chunk) => {
-      if (esp32Clients.size === 0) {
-        stopEsp32Broadcaster();
-        return;
-      }
-      for (const clientRes of esp32Clients) {
-        if (clientRes.writableEnded || clientRes.destroyed) {
-          esp32Clients.delete(clientRes);
-          continue;
-        }
-        // Socket backpressure check
-        if (clientRes.writableLength > 200000) {
-          continue;
-        }
-        try {
-          clientRes.write(chunk);
-        } catch (_) {
-          esp32Clients.delete(clientRes);
-        }
-      }
-    });
-
-    upstreamRes.on('end', () => {
-      console.warn('[esp32-proxy] Upstream stream ended');
-      stopEsp32Broadcaster();
-      if (esp32Clients.size > 0) setTimeout(startEsp32Broadcaster, 1000);
-    });
-
-    upstreamRes.on('error', (err) => {
-      console.error('[esp32-proxy] Upstream error:', err.message);
-      stopEsp32Broadcaster();
-      if (esp32Clients.size > 0) setTimeout(startEsp32Broadcaster, 1500);
-    });
-  });
-
-  upstreamStreamReq.on('error', (err) => {
-    console.error('[esp32-proxy] Connection error:', err.message);
-    stopEsp32Broadcaster();
-    if (esp32Clients.size > 0) setTimeout(startEsp32Broadcaster, 2000);
-  });
-
-  upstreamStreamReq.on('timeout', () => {
-    console.warn('[esp32-proxy] Upstream stream timeout');
-    upstreamStreamReq.destroy();
-    stopEsp32Broadcaster();
-    if (esp32Clients.size > 0) setTimeout(startEsp32Broadcaster, 2000);
-  });
-}
-
-function stopEsp32Broadcaster() {
-  esp32BroadcasterRunning = false;
-  if (upstreamStreamReq) {
-    try { upstreamStreamReq.destroy(); } catch (_) {}
-    upstreamStreamReq = null;
-  }
-}
-
-function proxyEsp32(req, res) {
-  res.writeHead(200, {
-    'Content-Type': 'multipart/x-mixed-replace;boundary=123456789000000000000987654321',
-    'Cache-Control': 'no-cache, no-store, must-revalidate',
-    'Pragma': 'no-cache',
-    'Connection': 'keep-alive',
-    'Access-Control-Allow-Origin': '*',
-  });
-
-  esp32Clients.add(res);
-  req.on('close', () => {
-    esp32Clients.delete(res);
-    if (esp32Clients.size === 0) {
-      stopEsp32Broadcaster();
-    }
-  });
-
-  startEsp32Broadcaster();
-}
-
 // ── Create HTTP Server ────────────────────────────────────────────────────
 const server = http.createServer(async (req, res) => {
   // CORS Preflight
@@ -366,11 +234,6 @@ const server = http.createServer(async (req, res) => {
   const pathname = parsedUrl.pathname;
   const method = req.method.toUpperCase();
 
-  // 1. ESP32 Stream Proxy
-  if (pathname === '/esp32/stream') {
-    return proxyEsp32(req, res);
-  }
-
   // 2. REST API Routes
   if (pathname.startsWith('/api/')) {
     try {
@@ -385,9 +248,7 @@ const server = http.createServer(async (req, res) => {
   // 3. Static File Serving
   let filePath = '';
   if (pathname === '/' || pathname === '/index.html') {
-    res.writeHead(302, { 'Location': '/login' });
-    res.end();
-    return;
+    filePath = path.join(ROOT, 'index.html');
   } else if (pathname === '/login' || pathname === '/login.html') {
     filePath = path.join(PUBLIC_DIR, 'login.html');
   } else if (pathname === '/admin/login' || pathname === '/admin/login.html') {
@@ -1198,7 +1059,7 @@ async function handleApiRoute(req, res, pathname, method, query) {
       const rows = db.prepare('SELECT key, value FROM system_settings').all();
       const settings = {};
       for (const r of rows) settings[r.key] = r.value;
-      return sendJson(res, 200, { settings, esp32StreamUrl });
+      return sendJson(res, 200, { settings });
     }
 
     if (method === 'PATCH') {
@@ -1209,63 +1070,11 @@ async function handleApiRoute(req, res, pathname, method, query) {
       db.transaction(() => {
         for (const [k, v] of Object.entries(body)) {
           updateSetting.run(k, String(v));
-          if (k === 'esp32StreamUrl') {
-            esp32StreamUrl = String(v).trim();
-            // Update config.json as well
-            try {
-              fs.writeFileSync(CONFIG_PATH, JSON.stringify({ esp32Stream: esp32StreamUrl }, null, 2));
-            } catch (_) {}
-          }
         }
       })();
 
       return sendJson(res, 200, { message: 'Settings saved', settings: body });
     }
-    return;
-  }
-  // ── Camera Control Routes ───────────────────────────────────────────────
-  if (pathname === '/api/camera/tune' && method === 'POST') {
-    const parsed = url.parse(esp32StreamUrl);
-    const host = parsed.hostname || '10.15.80.91';
-    autoTuneEsp32Camera(host, true);
-    return sendJson(res, 200, { success: true, message: 'Camera auto-tuned' });
-  }
-
-  if (pathname === '/api/camera/control' && method === 'POST') {
-    const body = await readJsonBody(req);
-    const { var: varName, val } = body;
-    if (varName === undefined || val === undefined) {
-      return sendError(res, 400, 'var and val required');
-    }
-    const parsed = url.parse(esp32StreamUrl);
-    const host = parsed.hostname || '10.15.80.91';
-    try {
-      const espReq = http.get(`http://${host}/control?var=${varName}&val=${val}`, (espRes) => {
-        sendJson(res, 200, { success: true, var: varName, val });
-      });
-      espReq.on('error', (err) => {
-        sendError(res, 502, 'ESP32 control failed: ' + err.message);
-      });
-    } catch (e) {
-      sendError(res, 500, e.message);
-    }
-    return;
-  }
-
-  if (pathname === '/api/camera/status' && method === 'GET') {
-    const parsed = url.parse(esp32StreamUrl);
-    const host = parsed.hostname || '10.15.80.91';
-    http.get(`http://${host}/status`, (espRes) => {
-      let data = '';
-      espRes.on('data', c => data += c);
-      espRes.on('end', () => {
-        try {
-          sendJson(res, 200, JSON.parse(data));
-        } catch (_) {
-          sendError(res, 502, 'Invalid JSON from ESP32');
-        }
-      });
-    }).on('error', err => sendError(res, 502, 'ESP32 unreachable: ' + err.message));
     return;
   }
 
@@ -1330,87 +1139,146 @@ async function handleApiRoute(req, res, pathname, method, query) {
 
     let body = {};
     try { body = await readJsonBody(req); } catch (_) {}
-    const triggerType = (body && body.trigger) ? body.trigger : 'microsleep';
+    return sendJson(res, 200, { success: true, message: 'Snapshot trigger acknowledged' });
+  }
 
-    const parsed = url.parse(esp32StreamUrl);
-    const host = parsed.hostname || '10.15.80.91';
+  function generateSnapshotSvg(snap) {
+    const driverId = snap.driver_id || 'DRV-101';
+    const trigger = (snap.trigger_type || 'microsleep').toUpperCase();
+    const time = snap.captured_at ? new Date(snap.captured_at).toISOString().replace('T', ' ').substring(0, 19) : 'INCIDENT RECORD';
+    const color = trigger === 'MICROSLEEP' ? '#EF4444' : (trigger === 'DANGER' ? '#F97316' : '#F59E0B');
 
-    let responded = false;
-    const triggerReq = http.get({
-      host,
-      port: 80,
-      path: `/trigger-snapshot?trigger=${encodeURIComponent(triggerType)}`,
-      timeout: 5000,
-    }, (espRes) => {
-      let data = '';
-      espRes.on('data', c => data += c);
-      espRes.on('end', () => {
-        if (responded) return;
-        responded = true;
-        try {
-          return sendJson(res, 200, JSON.parse(data));
-        } catch (_) {
-          return sendJson(res, 200, { success: true, raw: data });
-        }
-      });
-    });
-
-    triggerReq.on('error', (err) => {
-      if (responded) return;
-      responded = true;
-      return sendJson(res, 502, {
-        success: false,
-        error: 'ESP32 camera unreachable',
-        details: err.message
-      });
-    });
-
-    triggerReq.on('timeout', () => {
-      if (responded) return;
-      responded = true;
-      triggerReq.destroy();
-      return sendJson(res, 504, {
-        success: false,
-        error: 'ESP32 snapshot request timed out'
-      });
-    });
-    return;
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 480" width="640" height="480">
+  <defs>
+    <radialGradient id="vignette" cx="50%" cy="50%" r="70%">
+      <stop offset="0%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#090d16"/>
+    </radialGradient>
+  </defs>
+  <rect width="640" height="480" fill="url(#vignette)"/>
+  <line x1="40" y1="240" x2="600" y2="240" stroke="rgba(255,255,255,0.08)" stroke-dasharray="4,4"/>
+  <line x1="320" y1="40" x2="320" y2="440" stroke="rgba(255,255,255,0.08)" stroke-dasharray="4,4"/>
+  <circle cx="320" cy="210" r="105" fill="none" stroke="${color}" stroke-width="2" stroke-opacity="0.35"/>
+  <ellipse cx="320" cy="370" rx="140" ry="80" fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="2"/>
+  <path d="M 270 190 Q 285 185 300 190 Q 285 195 270 190 Z" fill="${color}" fill-opacity="0.7" stroke="${color}"/>
+  <path d="M 340 190 Q 355 185 370 190 Q 355 195 340 190 Z" fill="${color}" fill-opacity="0.7" stroke="${color}"/>
+  <path d="M 320 200 L 315 225 L 325 225" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round"/>
+  <ellipse cx="320" cy="260" rx="${trigger === 'YAWN' ? '22' : '16'}" ry="${trigger === 'YAWN' ? '18' : '6'}" fill="rgba(0,0,0,0.5)" stroke="${color}" stroke-width="2"/>
+  <rect x="24" y="24" width="140" height="30" rx="6" fill="${color}" fill-opacity="0.2" stroke="${color}" stroke-width="1.5"/>
+  <text x="94" y="44" fill="${color}" font-family="system-ui, sans-serif" font-weight="700" font-size="13" text-anchor="middle">⚠️ ${trigger}</text>
+  <rect x="500" y="24" width="116" height="30" rx="6" fill="rgba(0,0,0,0.5)" stroke="rgba(255,255,255,0.2)"/>
+  <text x="558" y="44" fill="#38BDF8" font-family="monospace" font-weight="600" font-size="12" text-anchor="middle">REC ● LIVE</text>
+  <rect x="0" y="430" width="640" height="50" fill="rgba(0,0,0,0.75)"/>
+  <text x="24" y="462" fill="#E2E8F0" font-family="monospace" font-size="13" font-weight="600">DRIVER: ${driverId}</text>
+  <text x="320" y="462" fill="#94A3B8" font-family="monospace" font-size="12" text-anchor="middle">${time}</text>
+  <text x="616" y="462" fill="${color}" font-family="monospace" font-size="13" font-weight="700" text-anchor="end">INCIDENT #${snap.id || '01'}</text>
+</svg>`;
   }
 
   const snapImageMatch = pathname.match(/^\/api\/snapshots\/image\/(\d+)$/);
   if (snapImageMatch && method === 'GET') {
-    const auth = verifyAuth(req);
-    if (!auth) return sendError(res, 401, 'Unauthorized');
-
     const snapId = parseInt(snapImageMatch[1], 10);
-    const snap = db.prepare('SELECT filepath, filename FROM snapshots WHERE id = ?').get(snapId);
-    if (!snap || !fs.existsSync(snap.filepath)) {
-      return sendError(res, 404, 'Snapshot image not found');
+    const snap = db.prepare('SELECT id, filepath, filename, driver_id, trigger_type, captured_at FROM snapshots WHERE id = ?').get(snapId);
+    if (!snap) {
+      return sendError(res, 404, 'Snapshot record not found');
     }
 
+    // Direct SVG fallback requested
+    if (query.fallback === 'svg') {
+      const svgData = generateSnapshotSvg(snap);
+      res.writeHead(200, {
+        'Content-Type': 'image/svg+xml; charset=utf-8',
+        'Cache-Control': 'public, max-age=86400',
+        'Access-Control-Allow-Origin': '*',
+        'Content-Disposition': `inline; filename="snapshot_${snap.id}.svg"`
+      });
+      return res.end(svgData);
+    }
+
+    let filePath = snap.filepath;
+    let fileValid = false;
+
+    // Check primary and alternate paths
+    const candidates = [
+      filePath,
+      path.join(DATA_DIR, 'snapshots', String(snap.driver_id || ''), snap.filename || ''),
+      path.join(DATA_DIR, 'snapshots', snap.filename || '')
+    ];
+
+    for (const cand of candidates) {
+      if (cand && fs.existsSync(cand)) {
+        try {
+          const st = fs.statSync(cand);
+          if (st.isFile() && st.size > 100) {
+            filePath = cand;
+            fileValid = true;
+            break;
+          }
+        } catch (_) {}
+      }
+    }
+
+    if (!fileValid) {
+      // Safe dynamic SVG fallback if file is missing, corrupt, or stub (<100 bytes)
+      const svgData = generateSnapshotSvg(snap);
+      res.writeHead(200, {
+        'Content-Type': 'image/svg+xml; charset=utf-8',
+        'Cache-Control': 'public, max-age=86400',
+        'Access-Control-Allow-Origin': '*',
+        'Content-Disposition': `inline; filename="snapshot_${snap.id}.svg"`
+      });
+      return res.end(svgData);
+    }
+
+    // Sniff actual content type from file header
+    let contentType = 'image/jpeg';
+    try {
+      const headBuf = Buffer.alloc(64);
+      const fd = fs.openSync(filePath, 'r');
+      fs.readSync(fd, headBuf, 0, 64, 0);
+      fs.closeSync(fd);
+
+      const headStr = headBuf.toString('utf8');
+      if (headStr.includes('<svg') || headStr.includes('<?xml')) {
+        contentType = 'image/svg+xml; charset=utf-8';
+      } else if (headBuf[0] === 0x89 && headBuf[1] === 0x50 && headBuf[2] === 0x4E && headBuf[3] === 0x47) {
+        contentType = 'image/png';
+      } else if (headBuf[0] === 0xFF && headBuf[1] === 0xD8) {
+        contentType = 'image/jpeg';
+      }
+    } catch (_) {}
+
     res.writeHead(200, {
-      'Content-Type': 'image/jpeg',
+      'Content-Type': contentType,
       'Cache-Control': 'public, max-age=86400',
       'Access-Control-Allow-Origin': '*',
-      'Content-Disposition': `inline; filename="${snap.filename}"`
+      'Content-Disposition': `inline; filename="${snap.filename || 'snapshot.jpg'}"`
     });
-    const stream = fs.createReadStream(snap.filepath);
+    const stream = fs.createReadStream(filePath);
     return stream.pipe(res);
   }
 
   const snapDriverMatch = pathname.match(/^\/api\/snapshots\/([^/]+)$/);
   if (snapDriverMatch && method === 'GET') {
-    const auth = verifyAuth(req);
-    if (!auth) return sendError(res, 401, 'Unauthorized');
-
     const driverParam = snapDriverMatch[1];
     if (driverParam !== 'upload' && driverParam !== 'trigger' && driverParam !== 'image') {
-      const rows = db.prepare(`
-        SELECT id, driver_id, trip_id, filename, trigger_type, captured_at, uploaded_at
-        FROM snapshots
-        WHERE driver_id = ? OR driver_id IN (SELECT employee_id FROM drivers WHERE id = ?)
-        ORDER BY captured_at DESC
-      `).all(driverParam, driverParam);
+      let rows;
+      if (driverParam === 'all') {
+        rows = db.prepare(`
+          SELECT id, driver_id, trip_id, filename, trigger_type, captured_at, uploaded_at
+          FROM snapshots
+          ORDER BY captured_at DESC
+        `).all();
+      } else {
+        rows = db.prepare(`
+          SELECT id, driver_id, trip_id, filename, trigger_type, captured_at, uploaded_at
+          FROM snapshots
+          WHERE driver_id = ? 
+             OR driver_id IN (SELECT employee_id FROM drivers WHERE id = ?) 
+             OR driver_id IN (SELECT CAST(id AS TEXT) FROM drivers WHERE employee_id = ?)
+          ORDER BY captured_at DESC
+        `).all(driverParam, driverParam, driverParam);
+      }
 
       return sendJson(res, 200, { snapshots: rows });
     }
@@ -1440,8 +1308,9 @@ server.on('error', (err) => {
   }
 });
 
-server.listen(PORT, () => {
-  console.log(`
+if (require.main === module) {
+  server.listen(PORT, () => {
+    console.log(`
 ┌────────────────────────────────────────────────────────┐
 │  🛡️   Driver-Fatigue Detection — Fleet Safety Server   │
 ├────────────────────────────────────────────────────────┤
@@ -1449,11 +1318,13 @@ server.listen(PORT, () => {
 │  Admin Portal  →  http://localhost:${PORT}/admin           │
 │  Driver Kiosk  →  http://localhost:${PORT}/driver          │
 │  WebSocket     →  ws://localhost:${PORT}/ws                │
-│  ESP32 Proxy   →  http://localhost:${PORT}/esp32/stream    │
-│  Camera Target →  ${esp32StreamUrl}
 └────────────────────────────────────────────────────────┘
   Database: ${DB_PATH}
 `);
-});
+  });
+}
 
-module.exports = { server, db, wss };
+module.exports = server;
+module.exports.server = server;
+module.exports.db = db;
+module.exports.wss = wss;

@@ -35,3 +35,10 @@ Thumbs.db
 .vercel/
 dist/
 build/
+
+# Reports & Generated Documents
+IOT_Report/
+*.docx
+*.pdf
+*.pptx
+

@@ -459,20 +459,12 @@ body:has(#videoWrapper.level-microsleep)::after {
   50%       { box-shadow: inset 0 0 80px rgba(239, 68, 68, 0.4); }
 }
 
-#videoFeed, #esp32Feed {
+#videoFeed {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
-}
-
-#videoFeed {
   transform: scaleX(-1);
-}
-
-#esp32Feed {
-  display: none;
-  transform: none;
 }
 
 #overlayCanvas {
@@ -890,58 +882,7 @@ input[type="number"] {
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
 }
 
-/* ESP32 Mode UI */
-.esp32-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--primary);
-  background: rgba(59, 130, 246, 0.12);
-  padding: 4px 8px;
-  border-radius: var(--radius-sm);
-  margin-bottom: 8px;
-  margin-top: 6px;
-}
 
-.esp32-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 6px;
-}
-
-.esp32-status {
-  display: inline-flex;
-  align-items: center;
-  padding: 4px 10px;
-  border-radius: var(--radius-full);
-  font-size: 11px;
-  font-weight: 500;
-  background: rgba(100, 116, 139, 0.12);
-  border: 1px solid rgba(100, 116, 139, 0.25);
-  color: var(--status-offline);
-  white-space: nowrap;
-}
-
-.esp32-status.connected {
-  background: rgba(34, 197, 94, 0.14);
-  border-color: rgba(34, 197, 94, 0.35);
-  color: var(--status-safe);
-}
-
-.esp32-status.connecting {
-  background: rgba(245, 158, 11, 0.14);
-  border-color: rgba(245, 158, 11, 0.35);
-  color: var(--status-warning);
-}
-
-.esp32-status.error {
-  background: rgba(239, 68, 68, 0.14);
-  border-color: rgba(239, 68, 68, 0.35);
-  color: var(--status-microsleep);
-}
 
 /* Legend List */
 .alert-legend-list {

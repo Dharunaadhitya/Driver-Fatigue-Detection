@@ -1,0 +1,11 @@
+.git
+.github
+.vscode
+.idea
+node_modules
+tests/
+*.docx
+*.pdf
+*.pptx
+*.py
+*.ps1
