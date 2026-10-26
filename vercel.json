@@ -2,7 +2,8 @@
   "version": 2,
   "cleanUrls": true,
   "rewrites": [
-    { "source": "/api/:path*", "destination": "/api" },
+    { "source": "/api/(.*)", "destination": "/api" },
+    { "source": "/api", "destination": "/api" },
     { "source": "/login", "destination": "/public/login.html" },
     { "source": "/login.html", "destination": "/public/login.html" },
     { "source": "/admin", "destination": "/public/admin/index.html" },
