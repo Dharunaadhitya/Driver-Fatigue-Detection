@@ -60,8 +60,20 @@ db.pragma('foreign_keys = ON');
 try {
   const schemaSql = fs.readFileSync(SCHEMA_PATH, 'utf8');
   db.exec(schemaSql);
+
+  // Auto-seed if database is brand new (e.g., on Render or fresh deployment)
+  const userCheck = db.prepare('SELECT COUNT(*) AS count FROM users').get();
+  if (!userCheck || userCheck.count === 0) {
+    console.log('[db] Fresh deployment detected — running auto-seed to create admin & driver credentials...');
+    try {
+      const { execSync } = require('child_process');
+      execSync('node seed.js', { stdio: 'inherit', cwd: ROOT });
+    } catch (sErr) {
+      console.error('[db] Error executing seed.js:', sErr.message);
+    }
+  }
 } catch (err) {
-  console.error('[db] Error executing schema.sql:', err.message);
+  console.error('[db] Error initializing database:', err.message);
 }
 
 // ── MIME types ─────────────────────────────────────────────────────────────

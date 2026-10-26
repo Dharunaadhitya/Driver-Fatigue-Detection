@@ -1,5 +1,13 @@
 # 🛡️ Driver-Fatigue Detection — Real-Time Fleet Fatigue & Safety Intelligence Platform
 
+[![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![MediaPipe](https://img.shields.io/badge/Computer_Vision-Google_MediaPipe_FaceMesh-0284C7?logo=google&logoColor=white)](https://developers.google.com/mediapipe)
+[![SQLite](https://img.shields.io/badge/Database-SQLite_WAL_Mode-003B57?logo=sqlite&logoColor=white)](https://www.sqlite.org/)
+[![WebSockets](https://img.shields.io/badge/RealTime-WebSockets_ws-FF6B6B)](https://github.com/websockets/ws)
+[![Webcam Only](https://img.shields.io/badge/Video_Source-Standard_Webcam-10B981)](#-core-detection-telemetry)
+[![Deploy on Render](https://img.shields.io/badge/Deploy-Render.com-46E3B7?logo=render&logoColor=white)](https://render.com)
+[![Deploy on Vercel](https://img.shields.io/badge/Deploy-Vercel-000000?logo=vercel&logoColor=white)](https://vercel.com)
+
 > Enterprise multi-driver fleet fatigue monitoring platform powered by client-side **Google MediaPipe FaceMesh** telemetry, Web Audio alarms, an offline-buffered **Driver Station Kiosk**, standard webcam support, and an executive fleet management suite built on Node.js, SQLite (WAL mode), and real-time WebSockets.
 
 ---
@@ -17,6 +25,7 @@
 - [Core Detection Telemetry](#-core-detection-telemetry)
 - [API Reference](#-api-reference)
 - [Risk Scoring Model](#-risk-scoring-model)
+- [Cloud Deployment (Render & Vercel)](#-cloud-deployment-render--vercel)
 - [Troubleshooting](#-troubleshooting)
 
 ---
@@ -274,28 +283,55 @@ Located in [`riskScore.js`](file:///d:/driver-fatigue/riskScore.js), the risk en
 
 ---
 
-## 🚀 Deploying to GitHub & Vercel
+## ☁️ Cloud Deployment (Render & Vercel)
 
-### 1. Push to GitHub
+### Option A: Deploy on Render (Recommended for Full WebSockets & SQLite)
+
+[Render.com](https://render.com) is the ideal hosting platform for this application because it runs a persistent Node.js environment supporting real-time WebSockets (`/ws`) and WAL-mode SQLite storage.
+
+#### 1. Push Your Code to GitHub
+Ensure all recent changes are committed and pushed:
 ```bash
 git add .
-git commit -m "feat: complete webcam-only driver fatigue monitoring platform"
-git branch -M main
-git remote add origin https://github.com/<YOUR_USERNAME>/<YOUR_REPO_NAME>.git
-git push -u origin main
+git commit -m "fix(render): auto-seed database on startup and improve cloud deployment"
+git push origin main
 ```
 
-### 2. Deploy to Vercel
-1. Go to [vercel.com](https://vercel.com) and click **"Add New Project"**.
-2. Select your imported GitHub repository.
-3. Framework Preset: Leave as **"Other"** (or None). Root Directory: `./`.
-4. Click **"Deploy"**.
-5. All rewrites in [`vercel.json`](file:///d:/driver-fatigue/vercel.json) automatically route:
+#### 2. Create Web Service on Render
+1. Sign in to your [Render Dashboard](https://dashboard.render.com/).
+2. Click **New +** → **Web Service**.
+3. Connect your GitHub repository (`Driver-Fatigue-Detection`).
+4. Configure the service settings:
+   - **Name**: `driver-fatigue-monitor` (or your choice)
+   - **Region**: Any (e.g., Oregon, Frankfurt, Singapore)
+   - **Branch**: `main`
+   - **Root Directory**: `.` (leave blank or default)
+   - **Runtime**: `Node`
+   - **Build Command**: `npm install && npm run build`
+     > *Note:* `npm run build` runs `node seed.js`, pre-populating all admin accounts and 10 driver profiles before the server starts.
+   - **Start Command**: `npm start`
+   - **Instance Type**: `Free`
+5. Click **Create Web Service**.
+
+> **💡 Automatic Database Seeding on Render:**
+> The SQLite database file (`data/drowsyguard.db`) is gitignored for clean version control. When Render boots a fresh clone, `server.js` automatically detects an empty database and runs `node seed.js` synchronously on startup. You can immediately log in as Admin (`admin@drowsyguard.io` / `admin123`) or Driver (`DRV-101` / PIN `1001`)!
+
+---
+
+### Option B: Deploy on Vercel (Serverless Edge Deployment)
+
+[Vercel](https://vercel.com) provides instant global edge deployment. A dedicated serverless handler ([`api/index.js`](file:///d:/driver-fatigue/api/index.js)) runs pure JavaScript without native C++ compilation requirements (`better-sqlite3.node`), sourcing data from [`data/seed_data.json`](file:///d:/driver-fatigue/data/seed_data.json).
+
+1. Import your GitHub repository into [Vercel](https://vercel.com).
+2. Framework Preset: **Other** / None.
+3. Root Directory: `./`.
+4. Click **Deploy**.
+5. All route rewrites are configured automatically in [`vercel.json`](file:///d:/driver-fatigue/vercel.json):
    - `/` → Main Camera Detector
    - `/login` → Unified Common Login Portal
    - `/admin` → Fleet Admin Intelligence Portal
    - `/driver` → Driver In-Cab Kiosk Station
-   - `/api/*` → Serverless Function backend ([`api/index.js`](file:///d:/driver-fatigue/api/index.js))
+   - `/api/*` → Pure JS Serverless Function
 
 ---
 
@@ -303,10 +339,11 @@ git push -u origin main
 
 | Issue | Cause | Solution |
 |---|---|---|
-| `Port 8080 is already in use` | Another server instance is active | Run in PowerShell: `$p = Get-NetTCPConnection -LocalPort 8080 -State Listen \| Select-Object -ExpandProperty OwningProcess; if ($p) { Stop-Process -Id $p -Force }` |
-| `Cannot find module 'better-sqlite3'` | Dependencies not installed | Run `npm install` in the project root directory |
-| Camera permission denied | Browser blocked webcam | Ensure camera permissions are allowed in your browser settings |
-| Web Audio tones not playing | Browser autoplay policy | Click anywhere on the Driver Station or Start button to grant audio permissions |
+| **Cannot log in on Render / Cloud host** | Fresh deployment had an empty database | Push the latest commit. The build script (`npm run build`) and `server.js` auto-seeder populate all users and drivers on first boot. |
+| **`Port 8080 is already in use`** | Another local server instance is active | Run in PowerShell: `$p = Get-NetTCPConnection -LocalPort 8080 -State Listen \| Select-Object -ExpandProperty OwningProcess; if ($p) { Stop-Process -Id $p -Force }` |
+| **`Cannot find module 'better-sqlite3'`** | Dependencies not installed locally | Run `npm install` in the project root directory |
+| **Camera permission denied** | Browser blocked webcam | Ensure camera permissions are allowed in your browser address bar settings |
+| **Web Audio alarms not playing** | Browser autoplay policy | Click anywhere on the Driver Station or Start button to grant audio playback permissions |
 
 ---
 
