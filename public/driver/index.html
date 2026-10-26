@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Driver-Fatigue Detection — Driver Station Kiosk</title>
+
+  <!-- Google Fonts: Inter & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <!-- MediaPipe FaceMesh -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+
+  <link rel="stylesheet" href="/shared/tokens.css" />
+  <link rel="stylesheet" href="/shared/base.css" />
+  <link rel="stylesheet" href="/driver/driver.css" />
+</head>
+<body>
+
+<div class="kiosk-container">
+
+  <!-- ── SCREEN 1: Driver PIN Login ────────────────────────── -->
+  <section class="kiosk-screen active" id="screenLogin">
+    <div class="login-kiosk-box">
+      <div class="kiosk-brand">
+        <div class="kiosk-logo" aria-hidden="true">🛡️</div>
+        <h1 class="kiosk-title">Driver Station</h1>
+        <p class="kiosk-subtitle">Apex Global Logistics In-Cab Telemetry</p>
+      </div>
+
+      <div class="card" style="width: 100%;">
+        <div class="pin-display-wrapper">
+          <label class="form-label" for="loginEmpId">Employee ID</label>
+          <input type="text" id="loginEmpId" class="form-input num" placeholder="e.g. DRV-101" style="text-align: center; font-size: 16px; font-weight: 700;" />
+
+          <label class="form-label" style="margin-top: 8px;">4-Digit PIN</label>
+          <div class="pin-display" id="pinDisplay">····</div>
+        </div>
+
+        <div class="keypad-grid" style="margin-top: 14px;">
+          <button type="button" class="keypad-btn" data-key="1">1</button>
+          <button type="button" class="keypad-btn" data-key="2">2</button>
+          <button type="button" class="keypad-btn" data-key="3">3</button>
+          <button type="button" class="keypad-btn" data-key="4">4</button>
+          <button type="button" class="keypad-btn" data-key="5">5</button>
+          <button type="button" class="keypad-btn" data-key="6">6</button>
+          <button type="button" class="keypad-btn" data-key="7">7</button>
+          <button type="button" class="keypad-btn" data-key="8">8</button>
+          <button type="button" class="keypad-btn" data-key="9">9</button>
+          <button type="button" class="keypad-btn" data-key="clear" style="font-size: 14px;">CLR</button>
+          <button type="button" class="keypad-btn" data-key="0">0</button>
+          <button type="button" class="keypad-btn" data-key="backspace">⌫</button>
+        </div>
+
+        <button type="button" class="btn btn-primary btn-lg" id="startShiftBtn" style="width: 100%; margin-top: 14px;">
+          Start Shift
+        </button>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ── SCREEN 2: Pre-Trip Inspection ─────────────────────── -->
+  <section class="kiosk-screen" id="screenPreTrip">
+    <div class="pretrip-box">
+      <div class="card pretrip-driver-card">
+        <div class="user-avatar" id="preTripAvatar" style="width: 50px; height: 50px; font-size: 18px;">JW</div>
+        <div>
+          <h2 class="card-title" id="preTripName" style="font-size: 18px;">James Wilson</h2>
+          <div class="card-subtitle num" id="preTripDetails">DRV-101 · Kenworth T680 #101</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 class="card-title" style="margin-bottom: 12px;">In-Cab Camera Configuration</h3>
+
+        <div class="form-group">
+          <label class="form-label" for="preTripCameraSelect">Select Video Source</label>
+          <select id="preTripCameraSelect" class="form-select">
+            <option value="webcam" selected>🎥 In-Cab USB / Laptop Webcam</option>
+            <option value="esp32">📡 ESP32-CAM (Via Server Proxy)</option>
+          </select>
+        </div>
+
+        <div class="form-group" id="esp32UrlGroup" style="display: none;">
+          <label class="form-label" for="preTripStreamUrl">ESP32 Stream Endpoint</label>
+          <input type="url" id="preTripStreamUrl" class="form-input num" value="/esp32/stream" />
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 10px; margin-top: 10px;">
+          <button type="button" class="btn btn-secondary" id="testStreamBtn">
+            Test Camera Link
+          </button>
+          <span class="status-chip safe" id="preTripCameraStatus">Ready</span>
+        </div>
+
+        <div style="margin-top: 14px; padding: 10px; background: var(--surface-2); border-radius: var(--radius-md); font-size: 12px; color: var(--text-muted);">
+          <strong>Baseline Calibration:</strong> <span id="preTripCalibInfo">Calibrated (Baseline EAR: 0.31)</span>
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 12px;">
+        <button type="button" class="btn btn-secondary btn-lg" id="preTripLogoutBtn">Sign Out</button>
+        <button type="button" class="btn btn-primary btn-lg" id="beginTripBtn" style="flex: 1;">
+          ▶ Begin Trip Shift
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── SCREEN 3: Active Trip Telemetry HUD ────────────────── -->
+  <section class="kiosk-screen" id="screenActiveTrip">
+    <!-- Topbar -->
+    <header class="trip-topbar">
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <span class="card-title" id="hudDriverName">James Wilson</span>
+        <span class="card-subtitle num" id="hudVehicleName">Kenworth T680 #101</span>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 14px;">
+        <span class="status-chip safe" id="hudStatusChip">Safe</span>
+        <div class="timer tabular-nums" id="hudTripTimer" style="font-size: 14px; font-weight: 700; background: var(--surface-2); padding: 4px 10px; border-radius: var(--radius-sm);">00:00:00</div>
+        <button class="btn btn-secondary btn-sm" id="hudSwitchCameraBtn" title="Switch between Webcam and ESP32-CAM">📷 Switch Camera</button>
+        <button class="btn btn-secondary btn-sm" id="hudTuneCameraBtn" title="Fine-tune camera image quality & colors">⚙️ Camera Quality</button>
+        <button class="btn btn-secondary btn-sm" id="hudBreakBtn">⏸ Take Break</button>
+        <button class="btn btn-danger btn-sm" id="hudEndTripBtn">■ End Trip</button>
+      </div>
+    </header>
+
+    <!-- Main HUD Grid -->
+    <div class="trip-hud-grid">
+
+      <!-- Left Column: Video & Landmark Overlay -->
+      <div class="kiosk-video-column">
+        <div class="kiosk-video-wrapper level-normal" id="kioskVideoWrapper">
+          <video id="kioskVideo" autoplay muted playsinline></video>
+          <img id="kioskEsp32" alt="ESP32 Stream" />
+          <canvas id="kioskCanvas"></canvas>
+
+          <span class="status-chip safe" id="kioskFaceBadge" style="position: absolute; top: 14px; left: 14px; z-index: 10;">
+            ✓ Face Detected
+          </span>
+
+          <span class="card-subtitle num" id="kioskSourceLabel" style="position: absolute; bottom: 12px; right: 14px; z-index: 10; background: rgba(0,0,0,0.6); padding: 3px 8px; border-radius: 4px;">
+            WEBCAM
+          </span>
+
+          <!-- Camera Quality Tuning Overlay Panel -->
+          <div class="camera-tune-panel" id="cameraTunePanel" style="display: none;">
+            <div class="camera-tune-header">
+              <span style="font-weight: 700; font-size: 13px;">⚙️ ESP32-CAM Quality Tuning</span>
+              <button type="button" class="tune-close-btn" id="tuneCloseBtn">✕</button>
+            </div>
+            <div class="camera-tune-body">
+              <div class="tune-row">
+                <label><span>Saturation</span> <span id="valSat">+1</span></label>
+                <input type="range" id="tuneSat" min="-2" max="2" value="1" step="1" />
+              </div>
+              <div class="tune-row">
+                <label><span>Contrast</span> <span id="valContrast">+1</span></label>
+                <input type="range" id="tuneContrast" min="-2" max="2" value="1" step="1" />
+              </div>
+              <div class="tune-row">
+                <label><span>Brightness</span> <span id="valBright">0</span></label>
+                <input type="range" id="tuneBright" min="-2" max="2" value="0" step="1" />
+              </div>
+              <div class="tune-row">
+                <label><span>Compression</span> <span id="valQuality">Crisp (10)</span></label>
+                <select id="tuneQuality" class="form-select form-select-sm" style="font-size: 12px; padding: 4px 8px;">
+                  <option value="10" selected>Crisp High-Def (10)</option>
+                  <option value="12">Standard Quality (12)</option>
+                  <option value="16">Balanced (16)</option>
+                  <option value="25">Low Bandwidth (25)</option>
+                </select>
+              </div>
+              <div class="tune-actions" style="margin-top: 6px;">
+                <button type="button" class="btn btn-primary btn-sm" id="btnAutoTune" style="width: 100%;">✨ Auto-Calibrate Image</button>
+              </div>
+              <div class="tune-tip">
+                💡 <strong>Lens Focus Tip:</strong> If the feed looks blurry, gently twist the knurled camera lens ring clockwise or counter-clockwise on the ESP32 module until facial details become pin-sharp.
+              </div>
+            </div>
+          </div>
+
+          <!-- In-Cab Shift Paused / Rest Break Overlay -->
+          <div class="kiosk-break-overlay" id="kioskBreakOverlay" style="display: none;">
+            <div class="break-card">
+              <div class="break-icon">☕</div>
+              <div class="break-title">Driver Rest Break Active</div>
+              <div class="break-subtitle">Fatigue detection & alarms temporarily suspended</div>
+              <div class="break-timer tabular-nums" id="breakDurationTimer">00:00</div>
+              <button type="button" class="btn btn-primary btn-lg" id="btnResumeBreak" style="margin-top: 16px; width: 100%;">
+                ▶ Resume Driving Shift
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Alert Banner -->
+        <div class="alert-banner hidden" id="kioskAlertBanner">
+          <span class="alert-icon">⚠️</span>
+          <span id="kioskAlertMessage">Alert Message</span>
+        </div>
+
+        <!-- Calibration Progress -->
+        <div id="kioskCalibSection" style="display:none; background: var(--surface); padding: 10px 14px; border-radius: var(--radius-md); border: 1px solid var(--border);">
+          <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 6px;">
+            <span style="color: var(--text-muted);">Calibrating eye baseline — look straight ahead</span>
+            <span class="num" id="kioskCalibPct" style="color: var(--primary); font-weight: 700;">0%</span>
+          </div>
+          <div class="calib-track">
+            <div id="kioskCalibBar" style="height: 6px; background: var(--primary); border-radius: 999px; width: 0%;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Column: Metrics Telemetry -->
+      <div class="kiosk-metrics-column">
+
+        <!-- PERCLOS Arc Card -->
+        <div class="card kiosk-perclos-card">
+          <div style="text-align: left;">
+            <div class="card-subtitle" style="font-weight: 600; text-transform: uppercase;">PERCLOS Ratio</div>
+            <div class="num" id="kioskPerclosVal" style="font-size: 28px; font-weight: 800; color: var(--safe); margin-top: 4px;">0.0%</div>
+            <div class="card-subtitle" style="font-size: 11px;">30s rolling closure</div>
+          </div>
+
+          <div style="position: relative; width: 80px; height: 80px;">
+            <svg width="80" height="80" viewBox="0 0 120 120" style="transform: rotate(-90deg);">
+              <circle class="perclos-bg" cx="60" cy="60" r="54" style="fill: none; stroke: var(--surface-2); stroke-width: 10;" />
+              <circle id="kioskPerclosArc" cx="60" cy="60" r="54" style="fill: none; stroke: var(--safe); stroke-width: 10; stroke-linecap: round; transition: all 0.2s;" />
+            </svg>
+          </div>
+        </div>
+
+        <!-- Telemetry 2x2 Grid -->
+        <div class="kiosk-gauge-grid">
+          <div class="kiosk-metric-card">
+            <div class="card-subtitle" style="font-size: 11px; text-transform: uppercase;">Eye Aspect Ratio (EAR)</div>
+            <div class="num" id="kioskEarVal" style="font-size: 22px; font-weight: 700; margin-top: 4px;">—</div>
+            <div class="card-subtitle" id="kioskEarState" style="font-size: 11px;">Open</div>
+          </div>
+
+          <div class="kiosk-metric-card">
+            <div class="card-subtitle" style="font-size: 11px; text-transform: uppercase;">Mouth Ratio (MAR)</div>
+            <div class="num" id="kioskMarVal" style="font-size: 22px; font-weight: 700; margin-top: 4px;">—</div>
+            <div class="card-subtitle" id="kioskYawnCount" style="font-size: 11px;">Yawns: 0</div>
+          </div>
+
+          <div class="kiosk-metric-card">
+            <div class="card-subtitle" style="font-size: 11px; text-transform: uppercase;">Blink Frequency</div>
+            <div class="num" id="kioskBlinkVal" style="font-size: 22px; font-weight: 700; margin-top: 4px;">0</div>
+            <div class="card-subtitle" style="font-size: 11px;">Blinks / min</div>
+          </div>
+
+          <div class="kiosk-metric-card">
+            <div class="card-subtitle" style="font-size: 11px; text-transform: uppercase;">Head Orientation</div>
+            <div class="num" id="kioskTiltVal" style="font-size: 18px; font-weight: 700; margin-top: 4px;">—</div>
+            <div class="card-subtitle" style="font-size: 11px;">Tilt / Nod (°)</div>
+          </div>
+        </div>
+
+        <!-- Incident Counters -->
+        <div class="card" style="padding: 14px;">
+          <div class="card-subtitle" style="font-size: 11px; text-transform: uppercase; margin-bottom: 8px;">Trip Incident Summary</div>
+          <div style="display: flex; justify-content: space-between; font-size: 13px;">
+            <span>Warnings: <strong class="num" id="tripWarningCount">0</strong></span>
+            <span>Dangers: <strong class="num" id="tripDangerCount" style="color: var(--danger);">0</strong></span>
+            <span>Microsleeps: <strong class="num" id="tripMicrosleepCount" style="color: var(--critical);">0</strong></span>
+          </div>
+        </div>
+
+      </div><!-- /metrics column -->
+    </div><!-- /hud grid -->
+  </section>
+
+</div><!-- /kiosk-container -->
+
+<!-- ── Full-Screen In-Cab Microsleep Critical Alert ──────────── -->
+<div class="microsleep-overlay" id="microsleepOverlay">
+  <div class="microsleep-alert-text">🚨 MICROSLEEP DETECTED</div>
+  <div style="font-size: 22px; color: #FFFFFF; font-weight: 600; margin-top: 10px;">
+    WAKE UP — OPEN YOUR EYES!
+  </div>
+</div>
+
+<!-- ── Trip Summary Modal ────────────────────────────────────── -->
+<div class="modal-overlay" id="tripSummaryModal">
+  <div class="modal-dialog">
+    <div class="card-header">
+      <h3 class="card-title">Shift Trip Concluded</h3>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 12px; margin: 16px 0;">
+      <div style="display: flex; justify-content: space-between;">
+        <span class="card-subtitle">Trip Duration:</span>
+        <strong class="num" id="summaryDuration">0 min</strong>
+      </div>
+      <div style="display: flex; justify-content: space-between;">
+        <span class="card-subtitle">Safety Risk Score:</span>
+        <span class="risk-badge" id="summaryRiskBadge">Low (0)</span>
+      </div>
+      <div style="display: flex; justify-content: space-between;">
+        <span class="card-subtitle">Warnings Recorded:</span>
+        <strong class="num" id="summaryWarnings">0</strong>
+      </div>
+      <div style="display: flex; justify-content: space-between;">
+        <span class="card-subtitle">Dangers Recorded:</span>
+        <strong class="num" id="summaryDangers">0</strong>
+      </div>
+      <div style="display: flex; justify-content: space-between;">
+        <span class="card-subtitle">Microsleep Incidents:</span>
+        <strong class="num" id="summaryMicrosleeps">0</strong>
+      </div>
+    </div>
+
+    <button type="button" class="btn btn-primary btn-lg" id="finishShiftBtn" style="width: 100%;">
+      Conclude Shift & Return to Login
+    </button>
+  </div>
+</div>
+
+<div id="toastContainer"></div>
+
+<!-- Driver Station Controller -->
+<script type="module" src="/driver/driver.js"></script>
+
+</body>
+</html>

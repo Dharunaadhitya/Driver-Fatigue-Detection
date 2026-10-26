@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign In — Driver-Fatigue Detection Platform</title>
+
+  <!-- Google Fonts: Inter & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="/shared/tokens.css" />
+  <link rel="stylesheet" href="/shared/base.css" />
+
+  <style>
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      background-color: var(--bg);
+      padding: 20px;
+      font-family: var(--font-ui);
+    }
+
+    .login-container {
+      width: 100%;
+      max-width: 440px;
+    }
+
+    .login-brand {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin-bottom: 24px;
+      text-align: center;
+    }
+
+    .login-logo {
+      width: 52px;
+      height: 52px;
+      border-radius: var(--radius-lg);
+      background: linear-gradient(135deg, var(--surface-2), var(--surface-3));
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 26px;
+      margin-bottom: 12px;
+      box-shadow: var(--shadow-md);
+    }
+
+    .login-title {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: -0.4px;
+    }
+
+    .login-desc {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    /* Role Switcher Tabs */
+    .role-tabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      background-color: var(--surface-2);
+      padding: 4px;
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--border);
+      margin-bottom: 20px;
+      gap: 4px;
+    }
+
+    .role-tab-btn {
+      padding: 10px 12px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-muted);
+      background: transparent;
+      border: none;
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all var(--transition);
+    }
+
+    .role-tab-btn:hover {
+      color: var(--text);
+    }
+
+    .role-tab-btn.active {
+      background-color: var(--surface);
+      color: var(--text);
+      box-shadow: var(--shadow-sm);
+      border: 1px solid var(--border);
+    }
+
+    /* Driver PIN Styles */
+    .pin-display-wrapper {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .pin-display {
+      width: 100%;
+      height: 48px;
+      background-color: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 26px;
+      letter-spacing: 8px;
+      font-family: var(--font-mono);
+      color: var(--primary);
+      user-select: none;
+    }
+
+    .keypad-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      width: 100%;
+      margin-top: 14px;
+    }
+
+    .keypad-btn {
+      height: 50px;
+      border-radius: var(--radius-md);
+      background-color: var(--surface-2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-size: 19px;
+      font-weight: 700;
+      font-family: var(--font-mono);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all var(--transition);
+      user-select: none;
+    }
+
+    .keypad-btn:hover {
+      background-color: var(--surface-3);
+      border-color: var(--primary);
+      color: var(--primary);
+    }
+
+    .keypad-btn:active {
+      transform: scale(0.97);
+    }
+
+    .badge-sub {
+      font-size: 11px;
+      padding: 2px 6px;
+      border-radius: var(--radius-xs);
+      background-color: var(--surface-3);
+      color: var(--text-muted);
+      margin-left: 4px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="login-container">
+  <div class="login-brand">
+    <div class="login-logo" aria-hidden="true">🛡️</div>
+    <h1 class="login-title">Driver-Fatigue Detection</h1>
+    <p class="login-desc">Unified Enterprise Safety & Telemetry Access</p>
+  </div>
+
+  <div class="card">
+    <!-- Role Switcher -->
+    <div class="role-tabs" role="tablist">
+      <button type="button" class="role-tab-btn active" id="tabStaff" role="tab" aria-selected="true">
+        <span>👔</span>
+        <span>Management</span>
+        <span class="badge-sub">Admin / Ops</span>
+      </button>
+      <button type="button" class="role-tab-btn" id="tabDriver" role="tab" aria-selected="false">
+        <span>🚚</span>
+        <span>Driver Station</span>
+        <span class="badge-sub">In-Cab</span>
+      </button>
+    </div>
+
+    <!-- 1. Staff Login Form (Admin, Manager, Supervisor) -->
+    <form id="staffLoginForm">
+      <div class="form-group">
+        <label class="form-label" for="staffEmail">Work Email</label>
+        <input type="email" id="staffEmail" class="form-input" placeholder="name@drowsyguard.io" required autofocus autocomplete="username" />
+        <span class="form-hint">For Administrators, Fleet Managers, and Shift Supervisors</span>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="staffPassword">Password</label>
+        <input type="password" id="staffPassword" class="form-input" placeholder="••••••••" required autocomplete="current-password" />
+      </div>
+
+      <button type="submit" id="staffSubmitBtn" class="btn btn-primary btn-lg" style="width: 100%; margin-top: 10px;">
+        Sign In to Management Portal
+      </button>
+    </form>
+
+    <!-- 2. Driver Login Form (Driver Name / ID + PIN) -->
+    <form id="driverLoginForm" style="display: none;">
+      <div class="pin-display-wrapper">
+        <label class="form-label" for="driverEmpId">Driver / Employee ID</label>
+        <input type="text" id="driverEmpId" class="form-input num" placeholder="e.g. DRV-101" style="text-align: center; font-size: 16px; font-weight: 700; text-transform: uppercase;" autocomplete="off" />
+
+        <label class="form-label" style="margin-top: 8px;">4-Digit Security PIN</label>
+        <div class="pin-display" id="driverPinDisplay">····</div>
+      </div>
+
+      <div class="keypad-grid">
+        <button type="button" class="keypad-btn" data-key="1">1</button>
+        <button type="button" class="keypad-btn" data-key="2">2</button>
+        <button type="button" class="keypad-btn" data-key="3">3</button>
+        <button type="button" class="keypad-btn" data-key="4">4</button>
+        <button type="button" class="keypad-btn" data-key="5">5</button>
+        <button type="button" class="keypad-btn" data-key="6">6</button>
+        <button type="button" class="keypad-btn" data-key="7">7</button>
+        <button type="button" class="keypad-btn" data-key="8">8</button>
+        <button type="button" class="keypad-btn" data-key="9">9</button>
+        <button type="button" class="keypad-btn" data-key="clear" style="font-size: 14px; color: var(--text-muted);">CLR</button>
+        <button type="button" class="keypad-btn" data-key="0">0</button>
+        <button type="button" class="keypad-btn" data-key="backspace">⌫</button>
+      </div>
+
+      <button type="button" id="driverSubmitBtn" class="btn btn-primary btn-lg" style="width: 100%; margin-top: 16px;">
+        Start Shift & Access In-Cab Kiosk
+      </button>
+    </form>
+  </div>
+</div>
+
+<div id="toastContainer"></div>
+
+<script>
+  // ── Route Check ─────────────────────────────────────────────────────────
+  const params = new URLSearchParams(window.location.search);
+  const preferredRole = params.get('role');
+
+  function showToast(message, type = 'error') {
+    const container = document.getElementById('toastContainer');
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.textContent = message;
+    container.appendChild(toast);
+    setTimeout(() => toast.remove(), 4000);
+  }
+
+  // ── Tab Switching Logic ─────────────────────────────────────────────────
+  const tabStaff = document.getElementById('tabStaff');
+  const tabDriver = document.getElementById('tabDriver');
+  const staffForm = document.getElementById('staffLoginForm');
+  const driverForm = document.getElementById('driverLoginForm');
+
+  function switchRole(role) {
+    if (role === 'driver') {
+      tabStaff.classList.remove('active');
+      tabStaff.setAttribute('aria-selected', 'false');
+      tabDriver.classList.add('active');
+      tabDriver.setAttribute('aria-selected', 'true');
+      staffForm.style.display = 'none';
+      driverForm.style.display = 'block';
+      document.getElementById('driverEmpId').focus();
+    } else {
+      tabDriver.classList.remove('active');
+      tabDriver.setAttribute('aria-selected', 'false');
+      tabStaff.classList.add('active');
+      tabStaff.setAttribute('aria-selected', 'true');
+      driverForm.style.display = 'none';
+      staffForm.style.display = 'block';
+      document.getElementById('staffEmail').focus();
+    }
+  }
+
+  tabStaff.addEventListener('click', () => switchRole('staff'));
+  tabDriver.addEventListener('click', () => switchRole('driver'));
+
+  if (preferredRole === 'driver') {
+    switchRole('driver');
+  }
+
+  // ── Staff Login (Email & Password) ──────────────────────────────────────
+  staffForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('staffSubmitBtn');
+    btn.disabled = true;
+    btn.textContent = 'Authenticating…';
+
+    const email = document.getElementById('staffEmail').value.trim();
+    const password = document.getElementById('staffPassword').value;
+
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Invalid email or password');
+      }
+
+      localStorage.setItem('drowsyguard_token', data.token);
+      localStorage.setItem('drowsyguard_user', JSON.stringify(data.user));
+      showToast(`Welcome back, ${data.user.name}`, 'success');
+
+      setTimeout(() => {
+        window.location.href = '/admin';
+      }, 500);
+    } catch (err) {
+      showToast(err.message, 'error');
+      btn.disabled = false;
+      btn.textContent = 'Sign In to Management Portal';
+    }
+  });
+
+  // ── Driver Login (Employee ID & PIN) ───────────────────────────────────
+  let enteredPin = '';
+  const pinDisplay = document.getElementById('driverPinDisplay');
+
+  function updatePinDisplay() {
+    if (!enteredPin) {
+      pinDisplay.textContent = '····';
+      return;
+    }
+    pinDisplay.textContent = '•'.repeat(enteredPin.length) + '·'.repeat(Math.max(0, 4 - enteredPin.length));
+  }
+
+  document.querySelectorAll('.keypad-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const key = btn.getAttribute('data-key');
+      if (key === 'clear') {
+        enteredPin = '';
+      } else if (key === 'backspace') {
+        enteredPin = enteredPin.slice(0, -1);
+      } else if (/^\d$/.test(key) && enteredPin.length < 4) {
+        enteredPin += key;
+      }
+      updatePinDisplay();
+    });
+  });
+
+  // Keyboard support for Driver PIN when on driver tab
+  window.addEventListener('keydown', (e) => {
+    if (driverForm.style.display === 'none') return;
+    if (document.activeElement === document.getElementById('driverEmpId')) return;
+
+    if (/^[0-9]$/.test(e.key) && enteredPin.length < 4) {
+      enteredPin += e.key;
+      updatePinDisplay();
+    } else if (e.key === 'Backspace') {
+      enteredPin = enteredPin.slice(0, -1);
+      updatePinDisplay();
+    } else if (e.key === 'Enter') {
+      handleDriverLogin();
+    }
+  });
+
+  async function handleDriverLogin() {
+    const empId = document.getElementById('driverEmpId').value.trim().toUpperCase();
+    if (!empId) {
+      showToast('Please enter your Employee ID (e.g. DRV-101)', 'warning');
+      document.getElementById('driverEmpId').focus();
+      return;
+    }
+
+    if (enteredPin.length < 4) {
+      showToast('Please enter your complete 4-digit PIN', 'warning');
+      return;
+    }
+
+    const btn = document.getElementById('driverSubmitBtn');
+    btn.disabled = true;
+    btn.textContent = 'Verifying Shift Credentials…';
+
+    try {
+      const res = await fetch('/api/auth/driver-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ employee_id: empId, pin: enteredPin })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Authentication failed. Verify Employee ID and PIN.');
+      }
+
+      localStorage.setItem('drowsyguard_driver_token', data.token);
+      localStorage.setItem('drowsyguard_driver', JSON.stringify(data.driver));
+      showToast(`Shift verified for ${data.driver.name}`, 'success');
+
+      setTimeout(() => {
+        window.location.href = '/driver';
+      }, 500);
+    } catch (err) {
+      showToast(err.message, 'error');
+      enteredPin = '';
+      updatePinDisplay();
+      btn.disabled = false;
+      btn.textContent = 'Start Shift & Access In-Cab Kiosk';
+    }
+  }
+
+  document.getElementById('driverSubmitBtn').addEventListener('click', handleDriverLogin);
+</script>
+
+</body>
+</html>

@@ -1,0 +1,76 @@
+/* ============================================================
+   DrowsyGuard Fleet — Design Tokens
+   Enterprise Fleet Safety (Samsara / Linear / Stripe inspired)
+   ============================================================ */
+
+:root {
+  /* DARK THEME (default) */
+  --bg:            #0A0F1E;
+  --surface:       #0F1729;
+  --surface-2:     #152035;
+  --surface-3:     #1C2A42;
+  --border:        #1E2D45;
+  --border-muted:  #162238;
+  --text:          #E8ECF4;
+  --text-muted:    #7A8BA8;
+  --text-subtle:   #4A5A72;
+  --primary:       #4F8EF7;
+  --primary-hover: #3B7AE8;
+  --primary-dim:   rgba(79, 142, 247, 0.12);
+  --accent:        #00D4AA;
+  --accent-dim:    rgba(0, 212, 170, 0.10);
+
+  /* STATUS COLORS (identical in both themes) */
+  --safe:           #22C55E;
+  --safe-dim:       rgba(34, 197, 94, 0.12);
+  --warning:        #F59E0B;
+  --warning-dim:    rgba(245, 158, 11, 0.12);
+  --danger:         #F97316;
+  --danger-dim:     rgba(249, 115, 22, 0.12);
+  --critical:       #EF4444;
+  --critical-dim:   rgba(239, 68, 68, 0.12);
+  --offline:        #64748B;
+  --offline-dim:    rgba(100, 116, 139, 0.12);
+
+  /* Typography */
+  --font-ui:   'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Sizing & Radius */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 9999px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.25);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.5);
+
+  /* Transitions */
+  --transition: 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+:root[data-theme="light"] {
+  /* LIGHT THEME */
+  --bg:            #F2F5FB;
+  --surface:       #FFFFFF;
+  --surface-2:     #EBF0F9;
+  --surface-3:     #E2E8F4;
+  --border:        #D4DCE8;
+  --border-muted:  #E4EAF4;
+  --text:          #0D1526;
+  --text-muted:    #4A5A72;
+  --text-subtle:   #8A9BB8;
+  --primary:       #2563EB;
+  --primary-hover: #1D4ED8;
+  --primary-dim:   rgba(37, 99, 235, 0.10);
+  --accent:        #0BA58A;
+  --accent-dim:    rgba(11, 165, 138, 0.10);
+
+  --shadow-sm: 0 1px 2px rgba(13, 21, 38, 0.05);
+  --shadow-md: 0 4px 14px rgba(13, 21, 38, 0.08);
+  --shadow-lg: 0 12px 32px rgba(13, 21, 38, 0.12);
+}

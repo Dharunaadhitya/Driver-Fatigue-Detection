@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Driver-Fatigue Detection — Safety Intelligence Portal</title>
+
+  <!-- Google Fonts: Inter & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <!-- Chart.js via CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  <link rel="stylesheet" href="/shared/tokens.css" />
+  <link rel="stylesheet" href="/shared/base.css" />
+  <link rel="stylesheet" href="/admin/admin.css" />
+</head>
+<body>
+
+<div class="admin-layout">
+
+  <!-- ── Left Fixed Sidebar ───────────────────────────────── -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-logo">🛡️</div>
+      <div class="sidebar-brand-text">Driver-Fatigue Detection</div>
+    </div>
+
+    <nav class="sidebar-nav">
+      <a href="#dashboard" class="nav-item active" data-view="dashboard">
+        <span class="nav-icon">📊</span>
+        <span>Dashboard</span>
+      </a>
+      <a href="#live" class="nav-item" data-view="live">
+        <span class="nav-icon">📡</span>
+        <span>Live Monitor</span>
+      </a>
+      <a href="#drivers" class="nav-item" data-view="drivers">
+        <span class="nav-icon">👥</span>
+        <span>Drivers</span>
+      </a>
+      <a href="#alerts" class="nav-item" data-view="alerts">
+        <span class="nav-icon">⚠️</span>
+        <span>Alert Feed</span>
+      </a>
+      <a href="#reports" class="nav-item" data-view="reports">
+        <span class="nav-icon">📄</span>
+        <span>Reports</span>
+      </a>
+      <a href="#settings" class="nav-item" data-view="settings">
+        <span class="nav-icon">⚙️</span>
+        <span>Settings</span>
+      </a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="user-profile-badge">
+        <div class="user-avatar" id="userAvatar">AD</div>
+        <div class="user-info">
+          <div class="user-name" id="userName">Admin User</div>
+          <div class="user-role" id="userRole">Safety Director</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── Main Workspace ───────────────────────────────────── -->
+  <main class="main-viewport">
+
+    <!-- Topbar -->
+    <header class="topbar">
+      <h1 class="page-title" id="pageTitle">Fleet Dashboard</h1>
+
+      <div class="topbar-actions">
+        <div class="search-input-wrap">
+          <span class="search-icon">🔍</span>
+          <input type="text" class="search-input" id="globalSearch" placeholder="Search driver or vehicle…" />
+        </div>
+
+        <button class="btn btn-ghost btn-icon-only" id="themeToggle" aria-label="Toggle dark/light theme" title="Toggle theme">
+          <span id="themeIcon">☀️</span>
+        </button>
+
+        <button class="btn btn-secondary btn-sm" id="logoutBtn">
+          Sign Out
+        </button>
+      </div>
+    </header>
+
+    <!-- Content Container -->
+    <div class="content-container">
+
+      <!-- ── VIEW 1: Dashboard ─────────────────────────────── -->
+      <section class="view-section active" id="viewDashboard">
+        <!-- KPI Row -->
+        <div class="kpi-grid">
+          <div class="card kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-label">Active Drivers Now</span>
+              <span class="kpi-icon">🚗</span>
+            </div>
+            <div class="kpi-val num" id="kpiActiveDrivers">—</div>
+            <div class="kpi-trend positive" id="kpiActiveTrend">Live tracking active</div>
+          </div>
+
+          <div class="card kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-label">Microsleeps Today</span>
+              <span class="kpi-icon">🚨</span>
+            </div>
+            <div class="kpi-val num" id="kpiMicrosleeps" style="color: var(--critical);">—</div>
+            <div class="kpi-trend" id="kpiMicrosleepsTrend">vs yesterday</div>
+          </div>
+
+          <div class="card kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-label">Fleet Avg Risk Score</span>
+              <span class="kpi-icon">🛡️</span>
+            </div>
+            <div class="kpi-val num" id="kpiAvgRisk">—</div>
+            <div class="kpi-trend neutral">7-day rolling fleet average</div>
+          </div>
+
+          <div class="card kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-label">Total Alerts Today</span>
+              <span class="kpi-icon">⚠️</span>
+            </div>
+            <div class="kpi-val num" id="kpiTotalAlerts">—</div>
+            <div class="kpi-trend" id="kpiAlertsTrend">vs yesterday</div>
+          </div>
+        </div>
+
+        <!-- Charts Grid -->
+        <div class="charts-grid">
+          <div class="card chart-card">
+            <div class="card-header">
+              <div>
+                <h3 class="card-title">14-Day Alert Telemetry Trend</h3>
+                <span class="card-subtitle">Warnings, Dangers, and Microsleep incidents across fleet</span>
+              </div>
+            </div>
+            <div style="height: 220px; position: relative;">
+              <canvas id="trendChart"></canvas>
+            </div>
+          </div>
+
+          <div class="card chart-card">
+            <div class="card-header">
+              <div>
+                <h3 class="card-title">Severity Split (Today)</h3>
+                <span class="card-subtitle">Distribution by event gravity</span>
+              </div>
+            </div>
+            <div style="height: 220px; position: relative;">
+              <canvas id="severityDonutChart"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- Hourly Distribution -->
+        <div class="card chart-card">
+          <div class="card-header">
+            <div>
+              <h3 class="card-title">Alert Frequency by Hour of Day</h3>
+              <span class="card-subtitle">Identify peak drowsiness hours across shift cycles</span>
+            </div>
+          </div>
+          <div style="height: 180px; position: relative;">
+            <canvas id="hourlyBarChart"></canvas>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── VIEW 2: Live Monitor ──────────────────────────── -->
+      <section class="view-section" id="viewLive">
+        <div class="card-header" style="margin-bottom: 0;">
+          <div>
+            <h2 class="card-title" style="font-size: 16px;">Real-Time Driver Cabin Telemetry</h2>
+            <span class="card-subtitle">Live biometric streams received via WebSockets</span>
+          </div>
+          <span class="status-chip safe" id="wsConnectionStatus">WebSocket Connected</span>
+        </div>
+
+        <div class="live-grid" id="liveGridContainer">
+          <p class="card-subtitle" style="grid-column: 1 / -1; text-align: center; padding: 40px;">No drivers currently on active trips.</p>
+        </div>
+      </section>
+
+      <!-- ── VIEW 3: Drivers Roster ────────────────────────── -->
+      <section class="view-section" id="viewDrivers">
+        <div class="card-header" style="margin-bottom: 0;">
+          <div>
+            <h2 class="card-title" style="font-size: 16px;">Commercial Fleet Operators</h2>
+            <span class="card-subtitle">10 Registered drivers and risk profiles</span>
+          </div>
+          <button class="btn btn-primary" id="openAddDriverBtn">
+            + Onboard Driver
+          </button>
+        </div>
+
+        <div class="table-wrapper">
+          <table id="driversTable">
+            <thead>
+              <tr>
+                <th>Driver</th>
+                <th>Employee ID</th>
+                <th>Assigned Vehicle</th>
+                <th>Status</th>
+                <th>Safety Risk</th>
+                <th>Alerts (7d)</th>
+                <th>Microsleeps (7d)</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="driversTableBody">
+              <tr><td colspan="8" style="text-align: center; color: var(--text-muted);">Loading drivers…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ── VIEW 4: Driver Dossier / Profile ──────────────── -->
+      <section class="view-section" id="viewDriverProfile">
+        <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 8px;">
+          <button class="btn btn-ghost btn-sm" id="backToDriversBtn">
+            ← Back to Drivers Roster
+          </button>
+          <button class="btn btn-primary btn-sm" id="downloadProfileReportBtn">
+            📥 Download Driver Report
+          </button>
+        </div>
+
+        <div class="card profile-header-card">
+          <div class="profile-identity">
+            <div class="profile-avatar-lg" id="profAvatar">JW</div>
+            <div>
+              <h2 class="card-title" id="profName" style="font-size: 20px;">James Wilson</h2>
+              <div style="display: flex; gap: 10px; align-items: center; margin-top: 6px;">
+                <span class="card-subtitle num" id="profEmpId">ID: DRV-101</span>
+                <span class="card-subtitle" id="profVehicle">Vehicle: Kenworth T680 #101</span>
+                <span class="status-chip safe" id="profStatus">Safe</span>
+                <span class="risk-badge low" id="profRiskBadge">Low Risk</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4 Tabs -->
+        <div class="profile-tabs" role="tablist">
+          <button class="profile-tab active" data-tab="profOverview">Overview & Telemetry</button>
+          <button class="profile-tab" data-tab="profTrips">Trip Logs</button>
+          <button class="profile-tab" data-tab="profIncidents">Incidents History</button>
+          <button class="profile-tab" data-tab="profSnapshots">📷 Snapshots</button>
+        </div>
+
+        <!-- Tab 1: Overview -->
+        <div class="profile-tab-pane active" id="profOverview">
+          <div class="kpi-grid">
+            <div class="card kpi-card">
+              <span class="kpi-label">Completed Trips</span>
+              <span class="kpi-val num" id="profTotalTrips">—</span>
+            </div>
+            <div class="card kpi-card">
+              <span class="kpi-label">Hours Logged</span>
+              <span class="kpi-val num" id="profTotalHours">—</span>
+            </div>
+            <div class="card kpi-card">
+              <span class="kpi-label">Microsleeps (Lifetime)</span>
+              <span class="kpi-val num" id="profMicrosleeps" style="color: var(--critical);">—</span>
+            </div>
+            <div class="card kpi-card">
+              <span class="kpi-label">Average PERCLOS</span>
+              <span class="kpi-val num" id="profAvgPerclos">—</span>
+            </div>
+          </div>
+
+          <div class="card chart-card">
+            <div class="card-header">
+              <h3 class="card-title">30-Day Alert Incident History</h3>
+            </div>
+            <div style="height: 220px; position: relative;">
+              <canvas id="driverTrendChart"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 2: Trips -->
+        <div class="profile-tab-pane" id="profTrips">
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Trip Date / Time</th>
+                  <th>Duration</th>
+                  <th>Warnings</th>
+                  <th>Dangers</th>
+                  <th>Microsleeps</th>
+                  <th>Avg PERCLOS</th>
+                  <th>Risk Level</th>
+                </tr>
+              </thead>
+              <tbody id="profTripsTableBody">
+                <tr><td colspan="7" style="text-align: center;">No trips on record.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Tab 3: Incidents -->
+        <div class="profile-tab-pane" id="profIncidents">
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Timestamp</th>
+                  <th>Incident Type</th>
+                  <th>Severity</th>
+                  <th>Duration (ms)</th>
+                  <th>PERCLOS</th>
+                  <th>EAR</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="profIncidentsTableBody">
+                <tr><td colspan="7" style="text-align: center;">No recent incidents.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Tab 4: Snapshots Gallery -->
+        <div class="profile-tab-pane" id="profSnapshots">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <div>
+              <h3 class="card-title" style="font-size: 15px;">Incident Snapshot Gallery</h3>
+              <span class="card-subtitle">Camera captures saved during warning, danger, and microsleep events</span>
+            </div>
+            <button class="btn btn-secondary btn-sm" id="refreshSnapshotsBtn">
+              🔄 Refresh
+            </button>
+          </div>
+          <div class="snapshots-grid" id="snapshotsGrid">
+            <!-- Populated dynamically: skeletons while loading, snapshot cards when loaded -->
+          </div>
+        </div>
+      </section>
+
+      <!-- ── VIEW 5: Alert Feed ────────────────────────────── -->
+      <section class="view-section" id="viewAlerts">
+        <div class="card-header" style="margin-bottom: 0;">
+          <div>
+            <h2 class="card-title" style="font-size: 16px;">Live Fleet Fatigue Event Stream</h2>
+            <span class="card-subtitle">Real-time incident feed requiring operator acknowledgment</span>
+          </div>
+        </div>
+
+        <div class="table-wrapper">
+          <table id="alertsFeedTable">
+            <thead>
+              <tr>
+                <th>Timestamp</th>
+                <th>Driver</th>
+                <th>Incident Type</th>
+                <th>Severity</th>
+                <th>PERCLOS</th>
+                <th>Duration</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="alertsFeedTableBody">
+              <tr><td colspan="8" style="text-align: center;">Loading alert feed…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ── VIEW 6: Reports ───────────────────────────────── -->
+      <section class="view-section" id="viewReports">
+        <div class="card-header" style="flex-wrap: wrap; gap: 12px;">
+          <div>
+            <h2 class="card-title" style="font-size: 16px;">Fleet Safety Reports & Export</h2>
+            <span class="card-subtitle">Download consolidated audit logs and driver-specific reports for safety compliance</span>
+          </div>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <select id="reportDriverSelect" class="form-input" style="width: 250px; padding: 7px 12px; font-size: 13px;">
+              <option value="">All Fleet Drivers (Consolidated)</option>
+            </select>
+            <button type="button" id="downloadCsvBtn" class="btn btn-primary">
+              📥 Download CSV Report
+            </button>
+          </div>
+        </div>
+
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Trip ID</th>
+                <th>Driver</th>
+                <th>Vehicle</th>
+                <th>Start Time</th>
+                <th>Duration (min)</th>
+                <th>Warnings</th>
+                <th>Microsleeps</th>
+                <th>Risk Score</th>
+                <th>Risk Classification</th>
+              </tr>
+            </thead>
+            <tbody id="reportsPreviewBody">
+              <tr><td colspan="9" style="text-align: center;">Loading preview data…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ── VIEW 7: Settings ──────────────────────────────── -->
+      <section class="view-section" id="viewSettings">
+        <div class="card" style="max-width: 600px;">
+          <h2 class="card-title" style="font-size: 16px; margin-bottom: 16px;">Detection Sensitivities & Thresholds</h2>
+
+          <form id="settingsForm">
+            <div class="form-group">
+              <label class="form-label" for="settingEar">EAR Closure Multiplier (0.60 – 0.90)</label>
+              <span class="form-hint">Factor applied to driver's baseline eye ratio</span>
+              <input type="number" id="settingEar" step="0.01" min="0.60" max="0.90" class="form-input" />
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="settingMar">MAR Yawn Threshold (0.45 – 0.75)</label>
+              <span class="form-hint">Mouth aperture ratio triggering yawn detection</span>
+              <input type="number" id="settingMar" step="0.01" min="0.45" max="0.75" class="form-input" />
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="settingPerclosWarn">PERCLOS Warning Threshold (%)</label>
+              <input type="number" id="settingPerclosWarn" min="20" max="60" class="form-input" />
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="settingMicrosleepFrames">Microsleep Trigger (Frames)</label>
+              <span class="form-hint">Continuous closed eye frames (~30 frames/sec)</span>
+              <input type="number" id="settingMicrosleepFrames" min="20" max="90" class="form-input" />
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="settingEsp32Url">ESP32-CAM MJPEG Stream URL</label>
+              <input type="url" id="settingEsp32Url" class="form-input" />
+            </div>
+
+            <button type="submit" class="btn btn-primary" style="margin-top: 10px;">
+              Save Fleet Settings
+            </button>
+          </form>
+        </div>
+      </section>
+
+    </div><!-- /content-container -->
+  </main>
+</div><!-- /admin-layout -->
+
+<!-- ── Add Driver Modal ────────────────────────────────────── -->
+<div class="modal-overlay" id="addDriverModal">
+  <div class="modal-dialog">
+    <div class="card-header">
+      <h3 class="card-title">Onboard Commercial Driver</h3>
+      <button class="btn btn-ghost btn-sm" id="closeAddDriverBtn">✕</button>
+    </div>
+
+    <form id="addDriverForm">
+      <div class="form-group">
+        <label class="form-label" for="newEmpId">Employee ID (e.g. DRV-111)</label>
+        <input type="text" id="newEmpId" class="form-input" required />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="newName">Full Name</label>
+        <input type="text" id="newName" class="form-input" required />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="newPin">4-Digit Security PIN</label>
+        <input type="password" id="newPin" maxlength="6" class="form-input" required />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="newVehicle">Assigned Vehicle</label>
+        <input type="text" id="newVehicle" class="form-input" placeholder="e.g. Kenworth T680 #135" required />
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px;">
+        <button type="button" class="btn btn-secondary" id="cancelAddDriverBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary">Onboard Driver</button>
+      </div>
+    </form>
+  </div>
+<!-- ── Snapshot Lightbox Modal ────────────────────────────── -->
+<div class="modal-overlay" id="snapshotLightboxModal">
+  <div class="modal-dialog lightbox-dialog">
+    <div class="card-header" style="margin-bottom: 12px;">
+      <div>
+        <h3 class="card-title" id="lightboxTitle">Incident Snapshot</h3>
+        <span class="card-subtitle num" id="lightboxSubtitle">—</span>
+      </div>
+      <button class="btn btn-ghost btn-sm" id="closeLightboxBtn" title="Close">✕</button>
+    </div>
+
+    <div class="lightbox-img-wrap">
+      <img id="lightboxImg" src="" alt="Incident Snapshot" />
+    </div>
+
+    <div class="lightbox-meta-row" id="lightboxMeta">
+      <!-- Populated dynamically: badges, timestamps, trigger reason -->
+    </div>
+  </div>
+</div>
+
+<div id="toastContainer"></div>
+
+<!-- Admin Orchestration Script -->
+<script type="module" src="/admin/admin.js"></script>
+
+</body>
+</html>

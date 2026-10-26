@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Driver-Fatigue Detection</title>
+  <meta name="description" content="Enterprise driver fatigue and drowsiness detection using real-time face landmark telemetry. Monitor eye closure, yawning, and head posture to prevent fatigue-related incidents." />
+
+  <!-- Fonts: Inter for UI, JetBrains Mono for metrics and timestamps -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <!-- MediaPipe FaceMesh -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ══ Header / Top Bar ════════════════════════════════════ -->
+  <header>
+    <div class="header-brand">
+      <div class="brand-icon" aria-hidden="true">🛡️</div>
+      <div>
+        <div class="brand-name">Driver-Fatigue Detection</div>
+        <div class="brand-sub">Driver Fatigue Monitor</div>
+      </div>
+    </div>
+
+    <div class="header-center">
+      <div class="status-indicator" id="statusIndicator" role="status" aria-live="polite">
+        <span class="status-dot idle" id="statusDot" aria-hidden="true"></span>
+        <span id="statusText">Initializing…</span>
+      </div>
+      <div class="session-timer" id="sessionTime" aria-label="Session duration">00:00:00</div>
+    </div>
+
+    <div class="header-controls">
+      <button class="btn btn-primary" id="startBtn" disabled>
+        <span class="btn-icon" aria-hidden="true">▶</span> Start
+      </button>
+      <button class="btn btn-secondary" id="stopBtn" disabled>
+        <span class="btn-icon" aria-hidden="true">■</span> Stop
+      </button>
+      <button class="btn btn-ghost" id="resetBtn" title="Reset detection and session stats">
+        <span class="btn-icon" aria-hidden="true">↺</span> Reset
+      </button>
+      <button class="btn btn-ghost" id="muteBtn" title="Toggle audio alarms">
+        <span class="btn-icon" aria-hidden="true">🔊</span> Mute
+      </button>
+      <button class="btn btn-ghost btn-icon-only" id="themeToggle" aria-label="Switch to light theme" title="Toggle dark/light theme">
+        <span id="themeIcon" aria-hidden="true">☀️</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ══ Alert Banner (Full-Width Under Header) ═══════════════ -->
+  <div class="alert-banner hidden" id="alertBanner" role="alert" aria-live="assertive">
+    <span class="alert-icon" aria-hidden="true">⚠️</span>
+    <span id="alertMessage"></span>
+  </div>
+
+  <!-- ══ Main Grid ════════════════════════════════════════════ -->
+  <main class="main-grid">
+
+    <!-- ── Left Panel (Video + Metric Telemetry) ───────────── -->
+    <section class="left-panel" aria-label="Driver Telemetry & Video">
+
+      <!-- Video Area Card -->
+      <div class="video-area">
+        <div class="video-wrapper level-normal" id="videoWrapper">
+          <video id="videoFeed" autoplay muted playsinline></video>
+          <img id="esp32Feed" alt="ESP32-CAM Live Stream" />
+          <canvas id="overlayCanvas"></canvas>
+
+          <!-- Face detected badge -->
+          <div class="face-badge not-detected" id="faceDetectedBadge" role="status">
+            <span class="badge-dot" aria-hidden="true"></span>
+            <span class="badge-text">✗ No face</span>
+          </div>
+
+          <!-- Video label -->
+          <div class="video-label" id="videoLabel">ESP32-CAM</div>
+        </div>
+
+        <!-- Calibration Progress -->
+        <div id="calibSection" style="display:none;" role="region" aria-label="Sensor Calibration">
+          <div class="calib-header">
+            <span class="calib-label">Calibrating baseline eye threshold — keep eyes open and look ahead</span>
+            <span class="calib-pct" id="calibPct">0%</span>
+          </div>
+          <div class="calib-track">
+            <div id="calibBar" style="width:0%;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Metric Cards Grid -->
+      <div class="gauge-row">
+
+        <!-- PERCLOS Arc Card -->
+        <div class="gauge-card perclos-card">
+          <div class="gauge-label">PERCLOS</div>
+          <div class="perclos-ring">
+            <svg width="84" height="84" viewBox="0 0 120 120" class="perclos-svg" aria-hidden="true">
+              <circle class="perclos-bg" cx="60" cy="60" r="54" />
+              <circle id="perclosArc" cx="60" cy="60" r="54" />
+            </svg>
+            <div class="perclos-center">
+              <span id="perclosValue">0.0%</span>
+            </div>
+          </div>
+          <div class="gauge-sub">30s rolling closure</div>
+        </div>
+
+        <!-- Eye Aspect Ratio (EAR) -->
+        <div class="gauge-card">
+          <div class="gauge-label">EAR</div>
+          <div class="gauge-value" id="earValue">—</div>
+          <div class="gauge-sub">Eye aspect ratio</div>
+        </div>
+
+        <!-- Mouth Aspect Ratio (MAR) -->
+        <div class="gauge-card">
+          <div class="gauge-label">MAR</div>
+          <div class="gauge-value" id="marValue">—</div>
+          <div class="gauge-sub">Yawn detection</div>
+        </div>
+
+        <!-- Blink Rate -->
+        <div class="gauge-card">
+          <div class="gauge-label">Blinks / min</div>
+          <div class="gauge-value" id="blinkValue">0</div>
+          <div class="gauge-sub">Yawns: <span id="yawnValue">0</span></div>
+        </div>
+
+        <!-- Head Pose -->
+        <div class="gauge-card">
+          <div class="gauge-label">Head Pose</div>
+          <div class="gauge-value" id="tiltValue">—</div>
+          <div class="gauge-sub">Tilt / Nod (°)</div>
+        </div>
+
+      </div><!-- /gauge-row -->
+    </section><!-- /left-panel -->
+
+    <!-- ── Right Panel (History & Settings Tabs) ───────────── -->
+    <aside class="right-panel" aria-label="Configuration & Event Logs">
+      <div class="panel-tabs" role="tablist">
+        <button class="panel-tab active" id="tabHistory" onclick="switchTab('history')" role="tab" aria-selected="true" aria-controls="paneHistory">Alert History</button>
+        <button class="panel-tab" id="tabSettings" onclick="switchTab('settings')" role="tab" aria-selected="false" aria-controls="paneSettings">Settings</button>
+      </div>
+
+      <div class="panel-content">
+
+        <!-- History Tab -->
+        <div class="tab-pane active" id="paneHistory" role="tabpanel" aria-labelledby="tabHistory">
+          <div class="history-header">
+            <span class="history-title">Session Incidents</span>
+            <span class="history-hint">Last 100 events</span>
+          </div>
+          <div id="historyList">
+            <p class="no-history">No alerts yet this session.</p>
+          </div>
+        </div>
+
+        <!-- Settings Tab -->
+        <div class="tab-pane" id="paneSettings" role="tabpanel" aria-labelledby="tabSettings">
+
+          <!-- Video Source -->
+          <div class="settings-section">
+            <div class="settings-title">Video Source</div>
+
+            <div class="setting-row">
+              <label class="setting-label" for="sourceToggle">Source Mode</label>
+              <select id="sourceToggle" class="form-select">
+                <option value="esp32" selected>📡 ESP32-CAM</option>
+                <option value="webcam">🎥 Webcam</option>
+              </select>
+            </div>
+
+            <div id="esp32Section">
+              <div class="esp32-badge">📡 ESP32-CAM Stream</div>
+              <div class="setting-row">
+                <label class="setting-label" for="esp32Url">Stream URL</label>
+                <div class="setting-hint">Served via local proxy — edit <code>config.json</code> to configure camera IP</div>
+                <input type="url" id="esp32Url" class="form-input" placeholder="/esp32/stream" value="/esp32/stream" />
+              </div>
+              <div class="esp32-actions">
+                <button class="btn btn-secondary btn-sm" id="applyEspBtn">Connect Stream</button>
+                <span class="esp32-status" id="esp32Status">⬤ Not connected</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Detection Thresholds -->
+          <div class="settings-section">
+            <div class="settings-title">Detection Thresholds</div>
+
+            <div class="setting-row">
+              <label class="setting-label" for="earThreshold">EAR Threshold (Eyes Closed)</label>
+              <div class="setting-hint">Trigger closure below this ratio (default: 0.22)</div>
+              <input type="number" id="earThreshold" class="form-input" value="0.22" step="0.01" min="0.10" max="0.40" />
+            </div>
+
+            <div class="setting-row">
+              <label class="setting-label" for="marThreshold">MAR Threshold (Yawn)</label>
+              <div class="setting-hint">Trigger yawn warning above this ratio (default: 0.60)</div>
+              <input type="number" id="marThreshold" class="form-input" value="0.60" step="0.01" min="0.30" max="0.90" />
+            </div>
+
+            <button class="btn btn-secondary btn-sm" id="applyThreshBtn">
+              Apply Thresholds
+            </button>
+          </div>
+
+          <!-- Alert Levels Reference -->
+          <div class="settings-section">
+            <div class="settings-title">Alert Level Classification</div>
+            <div class="alert-legend-list">
+              <div class="legend-row">
+                <span class="legend-indicator safe" aria-hidden="true"></span>
+                <span class="legend-text"><strong>Normal</strong> — PERCLOS &lt; 40%</span>
+              </div>
+              <div class="legend-row">
+                <span class="legend-indicator warning" aria-hidden="true"></span>
+                <span class="legend-text"><strong>Warning</strong> — PERCLOS 40–70% or yawning</span>
+              </div>
+              <div class="legend-row">
+                <span class="legend-indicator danger" aria-hidden="true"></span>
+                <span class="legend-text"><strong>Danger</strong> — PERCLOS &gt; 70%</span>
+              </div>
+              <div class="legend-row">
+                <span class="legend-indicator microsleep" aria-hidden="true"></span>
+                <span class="legend-text"><strong>Microsleep</strong> — Eyes closed &gt; 1.5 seconds</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Data Controls -->
+          <div class="settings-section">
+            <div class="settings-title">Session Data</div>
+            <button class="btn btn-danger btn-sm" onclick="clearHistoryUI()">
+              Clear Alert History
+            </button>
+          </div>
+
+        </div><!-- /paneSettings -->
+      </div><!-- /panel-content -->
+    </aside><!-- /right-panel -->
+
+  </main><!-- /main-grid -->
+</div><!-- /app -->
+
+<script>
+  // ── Tab switching ────────────────────────────────────────
+  function switchTab(name) {
+    document.querySelectorAll('.panel-tab').forEach(t => {
+      t.classList.remove('active');
+      t.setAttribute('aria-selected', 'false');
+    });
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+    const tabEl = document.getElementById('tab' + name.charAt(0).toUpperCase() + name.slice(1));
+    const paneEl = document.getElementById('pane' + name.charAt(0).toUpperCase() + name.slice(1));
+    if (tabEl) {
+      tabEl.classList.add('active');
+      tabEl.setAttribute('aria-selected', 'true');
+    }
+    if (paneEl) paneEl.classList.add('active');
+  }
+
+  // Exposed for inline onclick in settings
+  function clearHistoryUI() {
+    if (window.__alertEngine) {
+      window.__alertEngine.clearHistory();
+      window.__renderHistory();
+    }
+  }
+</script>
+
+<!-- Load main as module -->
+<script type="module" src="js/main.js"></script>
+
+</body>
+</html>

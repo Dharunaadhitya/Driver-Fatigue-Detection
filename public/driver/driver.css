@@ -1,0 +1,475 @@
+/* ============================================================
+   DrowsyGuard Fleet — In-Cab Driver Station Kiosk Styles
+   Dark-mode only, high-contrast, touchscreen optimized
+   ============================================================ */
+
+body {
+  background-color: #0A0F1E;
+  color: #E8ECF4;
+  overflow: hidden;
+  user-select: none;
+}
+
+.kiosk-container {
+  height: 100vh;
+  width: 100vw;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Screen Containers ────────────────────────────────────── */
+.kiosk-screen {
+  display: none;
+  height: 100%;
+  width: 100%;
+}
+
+.kiosk-screen.active {
+  display: flex;
+}
+
+/* ── Screen 1: PIN Login ──────────────────────────────────── */
+#screenLogin {
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.login-kiosk-box {
+  width: 100%;
+  max-width: 440px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.kiosk-brand {
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+.kiosk-logo {
+  font-size: 36px;
+  margin-bottom: 6px;
+}
+
+.kiosk-title {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+}
+
+.kiosk-subtitle {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.pin-display-wrapper {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pin-display {
+  width: 100%;
+  height: 48px;
+  background-color: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  font-size: 24px;
+  letter-spacing: 6px;
+  font-family: var(--font-mono);
+}
+
+.keypad-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  width: 100%;
+}
+
+.keypad-btn {
+  height: 54px;
+  border-radius: var(--radius-md);
+  background-color: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 20px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition);
+}
+
+.keypad-btn:active {
+  background-color: var(--primary);
+  color: #FFFFFF;
+  transform: scale(0.96);
+}
+
+.recent-chips-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: 6px;
+}
+
+.recent-chip {
+  padding: 6px 12px;
+  border-radius: var(--radius-full);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.recent-chip:hover {
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+/* ── Screen 2: Pre-Trip ───────────────────────────────────── */
+#screenPreTrip {
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.pretrip-box {
+  width: 100%;
+  max-width: 580px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.pretrip-driver-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background-color: var(--surface-2);
+  padding: 16px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+}
+
+.camera-preview-box {
+  height: 200px;
+  background-color: #000000;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── Screen 3: Active Trip HUD ────────────────────────────── */
+#screenActiveTrip {
+  flex-direction: column;
+  height: 100%;
+}
+
+.trip-topbar {
+  height: 52px;
+  background-color: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  flex-shrink: 0;
+}
+
+.trip-hud-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 65% 35%;
+  gap: 16px;
+  padding: 16px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Video Column */
+.kiosk-video-column {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+
+.kiosk-video-wrapper {
+  position: relative;
+  flex: 1;
+  background: #000000;
+  border-radius: var(--radius-lg);
+  border: 1.5px solid var(--border);
+  overflow: hidden;
+}
+
+.kiosk-video-wrapper.level-warning {
+  border-color: var(--warning);
+  box-shadow: 0 0 24px rgba(245, 158, 11, 0.25);
+}
+
+.kiosk-video-wrapper.level-danger {
+  border-color: var(--danger);
+  box-shadow: 0 0 32px rgba(249, 115, 22, 0.35);
+}
+
+.kiosk-video-wrapper.level-microsleep {
+  border-color: var(--critical);
+  box-shadow: 0 0 48px rgba(239, 68, 68, 0.6);
+  animation: kiosk-alert-flash 0.8s infinite;
+}
+
+@keyframes kiosk-alert-flash {
+  0%, 100% { border-color: var(--critical); box-shadow: 0 0 24px rgba(239, 68, 68, 0.3); }
+  50%       { border-color: #FFFFFF; box-shadow: 0 0 60px rgba(239, 68, 68, 0.7); }
+}
+
+#kioskVideo, #kioskEsp32 {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+#kioskVideo { transform: scaleX(-1); }
+#kioskEsp32 {
+  display: none;
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
+  filter: contrast(1.05) saturate(1.1) brightness(1.01);
+}
+
+#kioskCanvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: scaleX(-1);
+  pointer-events: none;
+}
+
+/* Camera Quality Tuning Overlay Panel */
+.camera-tune-panel {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 280px;
+  background: rgba(18, 24, 38, 0.94);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  z-index: 50;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
+  font-size: 12px;
+}
+
+.camera-tune-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tune-close-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.tune-close-btn:hover {
+  color: var(--text);
+}
+
+.camera-tune-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tune-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tune-row label {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.tune-row input[type="range"] {
+  width: 100%;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.tune-actions {
+  display: flex;
+  margin-top: 4px;
+}
+
+.tune-tip {
+  margin-top: 6px;
+  padding: 8px;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  border-radius: var(--radius-sm);
+  color: #93c5fd;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+/* Metrics Column */
+.kiosk-metrics-column {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+}
+
+.kiosk-perclos-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  padding: 16px;
+}
+
+.kiosk-gauge-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.kiosk-metric-card {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+}
+
+/* Full-Screen Microsleep In-Cab Flash Banner */
+.microsleep-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(239, 68, 68, 0.35);
+  backdrop-filter: blur(6px);
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  animation: pulse-screen 0.8s infinite;
+}
+
+.microsleep-overlay.active {
+  display: flex;
+}
+
+@keyframes pulse-screen {
+  0%, 100% { background-color: rgba(239, 68, 68, 0.3); }
+  50%       { background-color: rgba(239, 68, 68, 0.6); }
+}
+
+.microsleep-alert-text {
+  font-size: 38px;
+  font-weight: 800;
+  color: #FFFFFF;
+  letter-spacing: 2px;
+  text-shadow: 0 4px 16px rgba(0, 0, 0, 0.8);
+  animation: text-pulse 0.4s infinite alternate;
+}
+
+@keyframes text-pulse {
+  from { transform: scale(1); }
+  to   { transform: scale(1.05); }
+}
+
+/* ── In-Cab Shift Rest Break Overlay ───────────────────────── */
+.kiosk-break-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 15, 29, 0.88);
+  backdrop-filter: blur(12px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 45;
+}
+
+.break-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 28px 36px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+  max-width: 360px;
+  width: 90%;
+}
+
+.break-icon {
+  font-size: 48px;
+  margin-bottom: 8px;
+  animation: float-break 2s ease-in-out infinite;
+}
+
+@keyframes float-break {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+.break-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+
+.break-subtitle {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+  line-height: 1.4;
+}
+
+.break-timer {
+  font-size: 32px;
+  font-weight: 800;
+  font-family: var(--font-mono);
+  color: var(--primary);
+  background: var(--surface-2);
+  padding: 8px 24px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  letter-spacing: 2px;
+}
