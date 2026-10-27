@@ -7,9 +7,11 @@ import { VideoSource } from './videoSource.js';
 import { FaceDetector } from './faceDetector.js';
 import { FatigueEngine } from './fatigueEngine.js';
 import { AlertEngine } from './alertEngine.js';
+import { loadAppConfig } from './config.js';
 
 // ── DOM refs ──────────────────────────────────────────────────────────────
 const videoEl = document.getElementById('videoFeed');
+const imgEl = document.getElementById('esp32Feed');
 const overlayCanvas = document.getElementById('overlayCanvas');
 const ctx2d = overlayCanvas.getContext('2d');
 
@@ -36,6 +38,10 @@ const stopBtn = document.getElementById('stopBtn');
 const resetBtn = document.getElementById('resetBtn');
 const muteBtn = document.getElementById('muteBtn');
 
+const sourceToggle = document.getElementById('sourceToggle');
+const esp32UrlInput = document.getElementById('esp32Url');
+const applyEspBtn = document.getElementById('applyEspBtn');
+const esp32Status = document.getElementById('esp32Status');
 const videoLabel = document.getElementById('videoLabel');
 
 const headerSnapshotBtn = document.getElementById('headerSnapshotBtn');
@@ -117,13 +123,17 @@ async function init() {
 
   // Wire video source
   videoSource.onStatusChange = (s) => {
+    if (s.startsWith('ESP32-CAM:')) {
+      setEsp32Status(s);
+    }
     setStatus(s, 'active');
   };
 
+  const initialMode = sourceToggle ? sourceToggle.value : 'esp32';
   if (videoLabel) {
-    videoLabel.textContent = 'WEBCAM';
+    videoLabel.textContent = initialMode === 'esp32' ? 'ESP32-CAM' : 'WEBCAM';
   }
-  applyCanvasMirror();
+  applyCanvasMirror(initialMode);
 
   // Restore settings
   loadSettings();
@@ -136,7 +146,7 @@ startBtn.addEventListener('click', async () => {
   startBtn.disabled = true;
   stopBtn.disabled = false;
   try {
-    await videoSource.start(videoEl);
+    await videoSource.start(videoEl, imgEl);
     isRunning = true;
     if (headerSnapshotBtn) headerSnapshotBtn.disabled = false;
     sessionStart = Date.now();
@@ -370,58 +380,103 @@ function handleAlertLevelChange(level, event) {
   }
 }
 
-function captureIncidentSnapshot(trigger = 'manual') {
-  if (!videoEl || !videoEl.videoWidth) {
-    if (!isRunning) {
-      setStatus('Please click "Start" to activate camera first', 'warning');
-      alert('The webcam is not active. Please click "Start" to activate your camera first!');
+async function captureIncidentSnapshot(trigger = 'manual') {
+  const activeEl = videoSource.getActiveElement();
+  const isEsp32 = videoSource.mode === 'esp32';
+  const hasVideo = !isEsp32 && videoEl && videoEl.videoWidth > 0;
+  const hasImg = isEsp32 && imgEl && (imgEl.naturalWidth > 0 || videoSource.isReady());
+
+  // 1. If live feed is active in browser, capture from canvas
+  if (hasVideo || hasImg) {
+    try {
+      const dims = videoSource.getSourceDimensions();
+      const off = document.createElement('canvas');
+      off.width = dims.width || 640;
+      off.height = dims.height || 480;
+      const oCtx = off.getContext('2d');
+
+      // Unmirror for webcam, direct for ESP32
+      if (!isEsp32) {
+        oCtx.save();
+        oCtx.scale(-1, 1);
+        oCtx.drawImage(activeEl, -off.width, 0, off.width, off.height);
+        oCtx.restore();
+      } else {
+        oCtx.drawImage(activeEl, 0, 0, off.width, off.height);
+      }
+
+      // Telemetry stamp bar
+      oCtx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+      oCtx.fillRect(0, off.height - 34, off.width, 34);
+      oCtx.fillStyle = '#FFFFFF';
+      oCtx.font = 'bold 13px monospace';
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString();
+      const srcName = isEsp32 ? 'ESP32-CAM' : 'LOCAL WEBCAM';
+      oCtx.fillText(`[${srcName}] ${timeStr}  TRIGGER: ${trigger.toUpperCase()}`, 12, off.height - 12);
+
+      const dataUrl = off.toDataURL('image/jpeg', 0.88);
+      const snapObj = {
+        id: Date.now(),
+        dataUrl,
+        trigger,
+        time: timeStr,
+        driverId: 'DRV-101'
+      };
+      capturedSnapshots.unshift(snapObj);
+      renderSnapshotsUI();
+      setStatus(`Snapshot captured (${trigger})`, 'active');
+
+      // Upload to server
+      off.toBlob(blob => {
+        if (!blob) return;
+        const fd = new FormData();
+        fd.append('driver_id', 'DRV-101');
+        fd.append('trigger', trigger);
+        fd.append('snapshot', blob, `snap_${Date.now()}.jpg`);
+        fetch('/api/snapshots/upload', { method: 'POST', body: fd })
+          .then(res => res.json())
+          .then(resData => {
+            if (resData && resData.id) snapObj.id = resData.id;
+          })
+          .catch(() => {});
+      }, 'image/jpeg', 0.88);
+      return;
+    } catch (err) {
+      console.warn('[Snapshot] Canvas capture error, trying server fallback:', err);
     }
-    return;
   }
 
+  // 2. Fallback: If camera is not active in browser or canvas was tainted, trigger ESP32 hardware snapshot on server
   try {
-    const off = document.createElement('canvas');
-    off.width = videoEl.videoWidth || 640;
-    off.height = videoEl.videoHeight || 480;
-    const oCtx = off.getContext('2d');
-
-    // Draw unmirrored frame
-    oCtx.save();
-    oCtx.scale(-1, 1);
-    oCtx.drawImage(videoEl, -off.width, 0, off.width, off.height);
-    oCtx.restore();
-
-    // Telemetry stamp
-    oCtx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-    oCtx.fillRect(0, off.height - 34, off.width, 34);
-    oCtx.fillStyle = '#FFFFFF';
-    oCtx.font = 'bold 13px monospace';
-    const now = new Date();
-    const timeStr = now.toLocaleTimeString();
-    oCtx.fillText(`[LOCAL WEBCAM] ${timeStr}  TRIGGER: ${trigger.toUpperCase()}`, 12, off.height - 12);
-
-    const dataUrl = off.toDataURL('image/jpeg', 0.88);
-    const snapObj = {
-      id: Date.now(),
-      dataUrl,
-      trigger,
-      time: timeStr
-    };
-    capturedSnapshots.unshift(snapObj);
-    renderSnapshotsUI();
-    setStatus(`Snapshot captured (${trigger})`, 'active');
-
-    // Also upload to server if running
-    off.toBlob(blob => {
-      if (!blob) return;
-      const fd = new FormData();
-      fd.append('driver_id', 'DRV-101');
-      fd.append('trigger', trigger);
-      fd.append('snapshot', blob, `snap_${Date.now()}.jpg`);
-      fetch('/api/snapshots/upload', { method: 'POST', body: fd }).catch(() => {});
-    }, 'image/jpeg', 0.88);
+    setStatus('Requesting snapshot from ESP32 camera…', 'active');
+    const res = await fetch('/api/snapshots/trigger', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ trigger, driver_id: 'DRV-101' })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.snapshot) {
+        capturedSnapshots.unshift({
+          id: data.snapshot.id,
+          dataUrl: `/api/snapshots/image/${data.snapshot.id}`,
+          trigger: data.snapshot.trigger_type || trigger,
+          time: new Date().toLocaleTimeString(),
+          driverId: data.snapshot.driver_id
+        });
+        renderSnapshotsUI();
+        setStatus(`Snapshot captured via ESP32 (${trigger})`, 'active');
+        return;
+      }
+    }
   } catch (err) {
-    console.warn('[Snapshot] Error:', err);
+    console.warn('[Snapshot] Server trigger error:', err);
+  }
+
+  if (!isRunning) {
+    setStatus('Please click "Start" to activate camera first', 'warning');
+    alert('The camera is not active. Please click "Start" to activate your camera first!');
   }
 }
 
@@ -521,6 +576,41 @@ function renderHistory() {
 }
 
 // ── Settings ──────────────────────────────────────────────────────────────
+if (sourceToggle) {
+  sourceToggle.addEventListener('change', async () => {
+    const mode = sourceToggle.value;
+    const espSection = document.getElementById('esp32Section');
+    if (espSection) espSection.style.display = mode === 'esp32' ? 'block' : 'none';
+    if (videoLabel) videoLabel.textContent = mode === 'esp32' ? 'ESP32-CAM' : 'WEBCAM';
+    applyCanvasMirror(mode);
+
+    if (isRunning) {
+      try {
+        await videoSource.switchMode(mode);
+      } catch (err) {
+        setStatus('Switch failed: ' + err.message, 'error');
+        sourceToggle.value = mode === 'webcam' ? 'esp32' : 'webcam';
+        if (espSection) espSection.style.display = sourceToggle.value === 'esp32' ? 'block' : 'none';
+        return;
+      }
+    }
+    saveSettings();
+  });
+}
+
+if (applyEspBtn) {
+  applyEspBtn.addEventListener('click', () => {
+    const url = (esp32UrlInput ? esp32UrlInput.value.trim() : '') || '/esp32/stream';
+    videoSource.setEsp32Url(url);
+    saveSettings();
+    if (isRunning && sourceToggle && sourceToggle.value === 'esp32') {
+      videoSource.switchMode('esp32');
+    } else {
+      setEsp32Status('ESP32-CAM: URL saved — click Start to connect');
+    }
+  });
+}
+
 applyThreshBtn.addEventListener('click', () => {
   fatigueEngine.updateThresholds({
     earThreshold: parseFloat(earThresholdInput.value),
@@ -529,11 +619,27 @@ applyThreshBtn.addEventListener('click', () => {
   saveSettings();
 });
 
-function loadSettings() {
+async function loadSettings() {
   try {
+    const cfg = await loadAppConfig();
+    const defaultStream = (cfg && (cfg.proxyStreamUrl || cfg.esp32StreamUrl)) || '/esp32/stream';
+
     const s = JSON.parse(localStorage.getItem('fatigue_settings') || '{}');
     if (s.earThreshold) earThresholdInput.value = s.earThreshold;
     if (s.marThreshold) marThresholdInput.value = s.marThreshold;
+    if (esp32UrlInput) {
+      esp32UrlInput.value = s.esp32Url || defaultStream;
+      videoSource.setEsp32Url(esp32UrlInput.value);
+    }
+    const mode = s.sourceMode || 'esp32';
+    if (sourceToggle) {
+      sourceToggle.value = mode;
+      const espSection = document.getElementById('esp32Section');
+      if (espSection) espSection.style.display = mode === 'esp32' ? 'block' : 'none';
+    }
+    if (videoLabel) videoLabel.textContent = mode === 'esp32' ? 'ESP32-CAM' : 'WEBCAM';
+    videoSource.mode = mode;
+    applyCanvasMirror(mode);
   } catch (_) {}
 }
 
@@ -541,6 +647,8 @@ function saveSettings() {
   localStorage.setItem('fatigue_settings', JSON.stringify({
     earThreshold: earThresholdInput.value,
     marThreshold: marThresholdInput.value,
+    esp32Url: esp32UrlInput ? esp32UrlInput.value : undefined,
+    sourceMode: sourceToggle ? sourceToggle.value : undefined,
   }));
 }
 
@@ -548,6 +656,23 @@ function saveSettings() {
 function setStatus(text, type) {
   statusText.textContent = text;
   statusDot.className = 'status-dot ' + type;
+}
+
+function setEsp32Status(message) {
+  if (!esp32Status) return;
+  esp32Status.textContent = message;
+  esp32Status.className = 'esp32-status';
+  if (message.includes('Connecting')) {
+    esp32Status.classList.add('connecting');
+  } else if (message.includes('Connected')) {
+    esp32Status.classList.add('connected');
+  } else if (
+    message.includes('failed') ||
+    message.includes('error') ||
+    message.includes('⚠')
+  ) {
+    esp32Status.classList.add('error');
+  }
 }
 
 // ── Session Timer ─────────────────────────────────────────────────────────
@@ -568,10 +693,15 @@ function showCalib(show) {
 // ── Canvas mirror helper ──────────────────────────────────
 /**
  * Webcam feed is CSS-mirrored (scaleX(-1)) so the driver sees a natural
- * reflection. This keeps the canvas overlay in sync with the webcam feed.
+ * reflection. ESP32 feed is NOT mirrored. This function keeps the canvas
+ * overlay in sync so landmarks always align with the displayed image.
  */
-function applyCanvasMirror() {
-  overlayCanvas.style.transform = 'scaleX(-1)';
+function applyCanvasMirror(mode = (sourceToggle ? sourceToggle.value : videoSource.mode)) {
+  if (mode === 'esp32') {
+    overlayCanvas.style.transform = 'none';
+  } else {
+    overlayCanvas.style.transform = 'scaleX(-1)';
+  }
 }
 
 // ── Expose globals for inline HTML handlers ───────────────────────────────
@@ -580,3 +710,4 @@ window.__renderHistory = renderHistory;
 
 // ── Boot ──────────────────────────────────────────────────────────────────
 init();
+

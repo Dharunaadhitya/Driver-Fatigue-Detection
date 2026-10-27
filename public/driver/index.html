@@ -77,8 +77,18 @@
 
       <div class="card">
         <h3 class="card-title" style="margin-bottom: 12px;">In-Cab Camera Configuration</h3>
-        <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 10px;">
-          Using in-cab webcam for driver face telemetry and fatigue monitoring.
+        <div class="form-group">
+          <label class="form-label" for="preTripCameraSelect">Select Video Source</label>
+          <select id="preTripCameraSelect" class="form-select">
+            <option value="esp32" selected>📡 ESP32-CAM (Stream via Proxy)</option>
+            <option value="webcam">🎥 In-Cab USB / Laptop Webcam</option>
+          </select>
+        </div>
+
+        <div class="form-group" id="esp32UrlGroup">
+          <label class="form-label" for="preTripStreamUrl">ESP32 Stream Endpoint</label>
+          <input type="url" id="preTripStreamUrl" class="form-input num" value="/esp32/stream" />
+          <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Target camera IP configured in <code>config.json</code></div>
         </div>
 
         <div style="display: flex; align-items: center; gap: 10px; margin-top: 10px;">
@@ -114,7 +124,8 @@
       <div style="display: flex; align-items: center; gap: 14px;">
         <span class="status-chip safe" id="hudStatusChip">Safe</span>
         <div class="timer tabular-nums" id="hudTripTimer" style="font-size: 14px; font-weight: 700; background: var(--surface-2); padding: 4px 10px; border-radius: var(--radius-sm);">00:00:00</div>
-        <button type="button" class="btn btn-secondary btn-sm" id="hudSnapshotBtn" title="Capture Webcam Snapshot">📷 Snapshot</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="hudSwitchCameraBtn" title="Switch between Webcam and ESP32-CAM">📷 Switch Camera</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="hudSnapshotBtn" title="Capture Incident Snapshot">📷 Snapshot</button>
         <button class="btn btn-secondary btn-sm" id="hudBreakBtn">⏸ Take Break</button>
         <button class="btn btn-danger btn-sm" id="hudEndTripBtn">■ End Trip</button>
       </div>
@@ -127,6 +138,7 @@
       <div class="kiosk-video-column">
         <div class="kiosk-video-wrapper level-normal" id="kioskVideoWrapper">
           <video id="kioskVideo" autoplay muted playsinline></video>
+          <img id="kioskEsp32" alt="ESP32 Stream" />
           <canvas id="kioskCanvas"></canvas>
 
           <span class="status-chip safe" id="kioskFaceBadge" style="position: absolute; top: 14px; left: 14px; z-index: 10;">

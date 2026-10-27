@@ -26,25 +26,61 @@ const { computeRiskScore } = require('./riskScore');
 const PORT = process.env.PORT || 8080;
 const ROOT = __dirname;
 const PUBLIC_DIR = path.join(__dirname, 'public');
-let DATA_DIR = path.join(__dirname, 'data');
-let DB_PATH = path.join(DATA_DIR, 'drowsyguard.db');
+const DATA_DIR = path.join(__dirname, 'data');
+const DB_PATH = path.join(DATA_DIR, 'drowsyguard.db');
 const SCHEMA_PATH = path.join(__dirname, 'schema.sql');
+const CONFIG_PATH = path.join(__dirname, 'config.json');
 const JWT_SECRET = process.env.JWT_SECRET || 'drowsyguard-fleet-secure-secret-2026';
 
-// ── Vercel Serverless /tmp adaptation ─────────────────────────────────────
-if (process.env.VERCEL) {
-  const tmpDir = path.join('/tmp', 'data');
-  if (!fs.existsSync(tmpDir)) {
-    try { fs.mkdirSync(tmpDir, { recursive: true }); } catch (_) {}
+// ── Centralized ESP32 Configuration Loader ────────────────────────────────
+function loadConfig() {
+  let cfg = {
+    esp32Stream: 'http://10.15.80.91',
+    esp32StreamUrl: 'http://10.15.80.91:81/stream',
+    esp32SnapshotUrl: 'http://10.15.80.91/capture',
+    esp32TriggerSnapshotUrl: 'http://10.15.80.91/trigger-snapshot',
+  };
+
+  try {
+    if (fs.existsSync(CONFIG_PATH)) {
+      const fileData = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+      cfg = { ...cfg, ...fileData };
+    }
+  } catch (err) {
+    console.warn('[config] Warning reading config.json:', err.message);
   }
-  const tmpDb = path.join(tmpDir, 'drowsyguard.db');
-  if (!fs.existsSync(tmpDb) && fs.existsSync(DB_PATH)) {
-    try { fs.copyFileSync(DB_PATH, tmpDb); } catch (_) {}
+
+  // Derive host, port and paths
+  let rawUrl = (cfg.esp32Stream || cfg.esp32StreamUrl || 'http://10.15.80.91').trim();
+  if (!rawUrl.startsWith('http://') && !rawUrl.startsWith('https://')) {
+    rawUrl = 'http://' + rawUrl;
   }
-  DATA_DIR = tmpDir;
-  if (fs.existsSync(tmpDb)) {
-    DB_PATH = tmpDb;
-  }
+
+  try {
+    const u = new URL(rawUrl);
+    const host = u.hostname || '10.15.80.91';
+    const port = u.port;
+    const pathName = u.pathname;
+
+    let streamPort = port ? parseInt(port, 10) : 81;
+    let streamPath = (pathName && pathName !== '/') ? pathName : '/stream';
+
+    if (!port && (!pathName || pathName === '/')) {
+      streamPort = 81;
+      streamPath = '/stream';
+    }
+
+    cfg.host = host;
+    cfg.streamPort = streamPort;
+    cfg.streamPath = streamPath;
+    cfg.baseUrl = `http://${host}`;
+    cfg.esp32StreamUrl = `http://${host}:${streamPort}${streamPath}`;
+    cfg.esp32SnapshotUrl = `http://${host}/capture`;
+    cfg.esp32TriggerSnapshotUrl = `http://${host}/trigger-snapshot`;
+    cfg.proxyStreamUrl = '/esp32/stream';
+  } catch (_) {}
+
+  return cfg;
 }
 
 // ── Database Initialization ───────────────────────────────────────────────
@@ -229,6 +265,133 @@ function serveStatic(res, filePath) {
   });
 }
 
+// ── ESP32 MJPEG Multi-Client Stream Engine ────────────────────────────────
+const esp32Clients = new Set();
+let esp32BroadcasterRunning = false;
+let upstreamStreamReq = null;
+let lastTuneTime = 0;
+
+function autoTuneEsp32Camera(host, force = false) {
+  const now = Date.now();
+  if (!force && now - lastTuneTime < 60000) return;
+  lastTuneTime = now;
+  const tunes = [
+    { var: 'quality', val: 10 },    // Crisp detail
+    { var: 'saturation', val: 1 }, // Vibrant natural colors
+    { var: 'contrast', val: 1 },   // Crisp edge definition
+    { var: 'brightness', val: 0 }, // Balanced dynamic range
+    { var: 'sharpness', val: 1 },  // Enhanced boundary sharpness
+    { var: 'awb', val: 1 },        // Automatic white balance
+    { var: 'vflip', val: 1 },      // Upright orientation
+  ];
+  for (const t of tunes) {
+    http.get(`http://${host}/control?var=${t.var}&val=${t.val}`, () => {}).on('error', () => {});
+  }
+}
+
+function startEsp32Broadcaster() {
+  if (esp32BroadcasterRunning) return;
+  esp32BroadcasterRunning = true;
+
+  const cfg = loadConfig();
+  const host = cfg.host || '10.15.80.91';
+  const port = cfg.streamPort || 81;
+  const streamPath = cfg.streamPath || '/stream';
+
+  autoTuneEsp32Camera(host);
+
+  console.log(`[esp32-proxy] Connecting to upstream MJPEG at http://${host}:${port}${streamPath}`);
+  upstreamStreamReq = http.get({
+    host,
+    port,
+    path: streamPath,
+    timeout: 6000,
+  }, (upstreamRes) => {
+    if (upstreamRes.statusCode !== 200) {
+      console.warn(`[esp32-proxy] Upstream status: ${upstreamRes.statusCode}`);
+      stopEsp32Broadcaster();
+      if (esp32Clients.size > 0) setTimeout(startEsp32Broadcaster, 2000);
+      return;
+    }
+
+    console.log('[esp32-proxy] Upstream connected! Piping MJPEG frames to', esp32Clients.size, 'clients.');
+
+    upstreamRes.on('data', (chunk) => {
+      if (esp32Clients.size === 0) {
+        stopEsp32Broadcaster();
+        return;
+      }
+      for (const clientRes of esp32Clients) {
+        if (clientRes.writableEnded || clientRes.destroyed) {
+          esp32Clients.delete(clientRes);
+          continue;
+        }
+        if (clientRes.writableLength > 200000) {
+          continue;
+        }
+        try {
+          clientRes.write(chunk);
+        } catch (_) {
+          esp32Clients.delete(clientRes);
+        }
+      }
+    });
+
+    upstreamRes.on('end', () => {
+      console.warn('[esp32-proxy] Upstream stream ended');
+      stopEsp32Broadcaster();
+      if (esp32Clients.size > 0) setTimeout(startEsp32Broadcaster, 1000);
+    });
+
+    upstreamRes.on('error', (err) => {
+      console.error('[esp32-proxy] Upstream error:', err.message);
+      stopEsp32Broadcaster();
+      if (esp32Clients.size > 0) setTimeout(startEsp32Broadcaster, 1500);
+    });
+  });
+
+  upstreamStreamReq.on('error', (err) => {
+    console.error('[esp32-proxy] Connection error:', err.message);
+    stopEsp32Broadcaster();
+    if (esp32Clients.size > 0) setTimeout(startEsp32Broadcaster, 2000);
+  });
+
+  upstreamStreamReq.on('timeout', () => {
+    console.warn('[esp32-proxy] Upstream stream timeout');
+    upstreamStreamReq.destroy();
+    stopEsp32Broadcaster();
+    if (esp32Clients.size > 0) setTimeout(startEsp32Broadcaster, 2000);
+  });
+}
+
+function stopEsp32Broadcaster() {
+  esp32BroadcasterRunning = false;
+  if (upstreamStreamReq) {
+    try { upstreamStreamReq.destroy(); } catch (_) {}
+    upstreamStreamReq = null;
+  }
+}
+
+function proxyEsp32(req, res) {
+  res.writeHead(200, {
+    'Content-Type': 'multipart/x-mixed-replace;boundary=123456789000000000000987654321',
+    'Cache-Control': 'no-cache, no-store, must-revalidate',
+    'Pragma': 'no-cache',
+    'Connection': 'keep-alive',
+    'Access-Control-Allow-Origin': '*',
+  });
+
+  esp32Clients.add(res);
+  req.on('close', () => {
+    esp32Clients.delete(res);
+    if (esp32Clients.size === 0) {
+      stopEsp32Broadcaster();
+    }
+  });
+
+  startEsp32Broadcaster();
+}
+
 // ── Create HTTP Server ────────────────────────────────────────────────────
 const server = http.createServer(async (req, res) => {
   // CORS Preflight
@@ -245,6 +408,11 @@ const server = http.createServer(async (req, res) => {
   const parsedUrl = url.parse(req.url, true);
   const pathname = parsedUrl.pathname;
   const method = req.method.toUpperCase();
+
+  // 1. ESP32 Stream Proxy
+  if (pathname === '/esp32/stream') {
+    return proxyEsp32(req, res);
+  }
 
   // 2. REST API Routes
   if (pathname.startsWith('/api/')) {
@@ -1057,6 +1225,12 @@ async function handleApiRoute(req, res, pathname, method, query) {
     return sendJson(res, 200, { reports: rows, driver: targetDriver });
   }
 
+  // ── Centralized Config Endpoint ─────────────────────────────────────────
+  if (pathname === '/api/config' && method === 'GET') {
+    const cfg = loadConfig();
+    return sendJson(res, 200, cfg);
+  }
+
   // ── Settings Routes ─────────────────────────────────────────────────────
   if (pathname === '/api/settings') {
     const auth = verifyAuth(req);
@@ -1067,11 +1241,13 @@ async function handleApiRoute(req, res, pathname, method, query) {
       return sendError(res, 403, 'Supervisors do not have access to System Settings');
     }
 
+    const cfg = loadConfig();
+
     if (method === 'GET') {
       const rows = db.prepare('SELECT key, value FROM system_settings').all();
       const settings = {};
       for (const r of rows) settings[r.key] = r.value;
-      return sendJson(res, 200, { settings });
+      return sendJson(res, 200, { settings, esp32Stream: cfg.esp32Stream, esp32StreamUrl: cfg.esp32StreamUrl });
     }
 
     if (method === 'PATCH') {
@@ -1082,11 +1258,63 @@ async function handleApiRoute(req, res, pathname, method, query) {
       db.transaction(() => {
         for (const [k, v] of Object.entries(body)) {
           updateSetting.run(k, String(v));
+          if (k === 'esp32Stream' || k === 'esp32StreamUrl') {
+            try {
+              const currentCfg = loadConfig();
+              currentCfg.esp32Stream = String(v).trim();
+              fs.writeFileSync(CONFIG_PATH, JSON.stringify(currentCfg, null, 2));
+            } catch (_) {}
+          }
         }
       })();
 
       return sendJson(res, 200, { message: 'Settings saved', settings: body });
     }
+    return;
+  }
+
+  // ── Camera Control Routes ───────────────────────────────────────────────
+  if (pathname === '/api/camera/tune' && method === 'POST') {
+    const cfg = loadConfig();
+    autoTuneEsp32Camera(cfg.host || '10.15.80.91', true);
+    return sendJson(res, 200, { success: true, message: 'Camera auto-tuned' });
+  }
+
+  if (pathname === '/api/camera/control' && method === 'POST') {
+    const body = await readJsonBody(req);
+    const { var: varName, val } = body;
+    if (varName === undefined || val === undefined) {
+      return sendError(res, 400, 'var and val required');
+    }
+    const cfg = loadConfig();
+    const host = cfg.host || '10.15.80.91';
+    try {
+      const espReq = http.get(`http://${host}/control?var=${varName}&val=${val}`, (espRes) => {
+        sendJson(res, 200, { success: true, var: varName, val });
+      });
+      espReq.on('error', (err) => {
+        sendError(res, 502, 'ESP32 control failed: ' + err.message);
+      });
+    } catch (e) {
+      sendError(res, 500, e.message);
+    }
+    return;
+  }
+
+  if (pathname === '/api/camera/status' && method === 'GET') {
+    const cfg = loadConfig();
+    const host = cfg.host || '10.15.80.91';
+    http.get(`http://${host}/status`, (espRes) => {
+      let data = '';
+      espRes.on('data', c => data += c);
+      espRes.on('end', () => {
+        try {
+          sendJson(res, 200, JSON.parse(data));
+        } catch (_) {
+          sendError(res, 502, 'Invalid JSON from ESP32');
+        }
+      });
+    }).on('error', err => sendError(res, 502, 'ESP32 unreachable: ' + err.message));
     return;
   }
 
@@ -1110,7 +1338,7 @@ async function handleApiRoute(req, res, pathname, method, query) {
       const now = new Date();
       const pad = n => String(n).padStart(2, '0');
       const dateStr = `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-      const filename = `${dateStr}.jpg`;
+      const filename = `snap_${dateStr}.jpg`;
       const filepath = path.join(snapshotsDir, filename);
 
       fs.writeFileSync(filepath, snapshotFile.data);
@@ -1133,11 +1361,24 @@ async function handleApiRoute(req, res, pathname, method, query) {
       `);
       const info = stmt.run(driverId, tripId, filename, filepath, triggerType);
 
+      const snapshotRecord = {
+        id: info.lastInsertRowid,
+        driver_id: driverId,
+        trip_id: tripId,
+        filename,
+        trigger_type: triggerType,
+        captured_at: new Date().toISOString()
+      };
+
+      // Broadcast live to all connected fleet managers and drivers
+      broadcastWs({ type: 'snapshot', snapshot: snapshotRecord });
+
       return sendJson(res, 201, {
         id: info.lastInsertRowid,
         saved: true,
         filename,
-        trigger_type: triggerType
+        trigger_type: triggerType,
+        snapshot: snapshotRecord
       });
     } catch (err) {
       console.error('[snapshot-upload-error]', err);
@@ -1146,12 +1387,99 @@ async function handleApiRoute(req, res, pathname, method, query) {
   }
 
   if (pathname === '/api/snapshots/trigger' && method === 'POST') {
-    const auth = verifyAuth(req);
-    if (!auth) return sendError(res, 401, 'Unauthorized');
-
     let body = {};
     try { body = await readJsonBody(req); } catch (_) {}
-    return sendJson(res, 200, { success: true, message: 'Snapshot trigger acknowledged' });
+    const driverId = (body && (body.driver_id || body.driverId)) ? String(body.driver_id || body.driverId).trim() : 'EMP001';
+    const triggerType = (body && body.trigger) ? body.trigger : 'manual';
+
+    const cfg = loadConfig();
+    const host = cfg.host || '10.15.80.91';
+
+    // 1. First attempt to capture direct JPEG frame from ESP32 camera endpoint http://<host>/capture
+    function tryCaptureDirect() {
+      return new Promise((resolve) => {
+        const reqEsp = http.get(`http://${host}/capture`, { timeout: 3500 }, (espRes) => {
+          if (espRes.statusCode === 200) {
+            const chunks = [];
+            espRes.on('data', c => chunks.push(c));
+            espRes.on('end', () => {
+              const buf = Buffer.concat(chunks);
+              if (buf.length > 500) {
+                return resolve({ success: true, buffer: buf });
+              }
+              resolve({ success: false });
+            });
+          } else {
+            resolve({ success: false });
+          }
+        });
+        reqEsp.on('error', () => resolve({ success: false }));
+        reqEsp.on('timeout', () => { reqEsp.destroy(); resolve({ success: false }); });
+      });
+    }
+
+    // 2. Also notify ESP32 /trigger-snapshot in case custom firmware handler is active
+    http.get(`http://${host}/trigger-snapshot?trigger=${encodeURIComponent(triggerType)}`, { timeout: 3000 }, () => {})
+      .on('error', () => {});
+
+    const directCap = await tryCaptureDirect();
+
+    if (directCap.success) {
+      // Save snapshot file to disk and record in database
+      const snapshotsDir = path.join(DATA_DIR, 'snapshots', driverId);
+      if (!fs.existsSync(snapshotsDir)) {
+        fs.mkdirSync(snapshotsDir, { recursive: true });
+      }
+      const now = new Date();
+      const pad = n => String(n).padStart(2, '0');
+      const dateStr = `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+      const filename = `snap_${dateStr}.jpg`;
+      const filepath = path.join(snapshotsDir, filename);
+
+      fs.writeFileSync(filepath, directCap.buffer);
+
+      let tripId = null;
+      try {
+        const activeTrip = db.prepare(`
+          SELECT t.id FROM trips t
+          JOIN drivers d ON d.id = t.driver_id
+          WHERE (d.employee_id = ? OR d.id = ?) AND t.status = 'active'
+          ORDER BY t.start_time DESC LIMIT 1
+        `).get(driverId, driverId);
+        if (activeTrip) tripId = activeTrip.id;
+      } catch (_) {}
+
+      const stmt = db.prepare(`
+        INSERT INTO snapshots (driver_id, trip_id, filename, filepath, trigger_type, captured_at)
+        VALUES (?, ?, ?, ?, ?, datetime('now'))
+      `);
+      const info = stmt.run(driverId, tripId, filename, filepath, triggerType);
+
+      const snapshotRecord = {
+        id: info.lastInsertRowid,
+        driver_id: driverId,
+        trip_id: tripId,
+        filename,
+        trigger_type: triggerType,
+        captured_at: new Date().toISOString()
+      };
+
+      broadcastWs({ type: 'snapshot', snapshot: snapshotRecord });
+
+      return sendJson(res, 201, {
+        success: true,
+        source: 'esp32_hardware',
+        snapshot: snapshotRecord
+      });
+    }
+
+    // If direct capture from ESP32 didn't respond (e.g. offline or client-side webcam),
+    // acknowledge trigger so frontend captures from canvas and calls /api/snapshots/upload
+    return sendJson(res, 200, {
+      success: true,
+      source: 'client_fallback',
+      message: 'Snapshot trigger acknowledged. Capturing from client video feed if available.'
+    });
   }
 
   function generateSnapshotSvg(snap) {
@@ -1322,6 +1650,7 @@ server.on('error', (err) => {
 
 if (require.main === module) {
   server.listen(PORT, () => {
+    const cfg = loadConfig();
     console.log(`
 ┌────────────────────────────────────────────────────────┐
 │  🛡️   Driver-Fatigue Detection — Fleet Safety Server   │
@@ -1330,6 +1659,8 @@ if (require.main === module) {
 │  Admin Portal  →  http://localhost:${PORT}/admin           │
 │  Driver Kiosk  →  http://localhost:${PORT}/driver          │
 │  WebSocket     →  ws://localhost:${PORT}/ws                │
+│  ESP32 Proxy   →  http://localhost:${PORT}/esp32/stream    │
+│  Camera Target →  ${cfg.esp32StreamUrl}
 └────────────────────────────────────────────────────────┘
   Database: ${DB_PATH}
 `);

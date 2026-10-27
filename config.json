@@ -1,0 +1,8 @@
+{
+  "esp32Stream": "http://10.15.80.91",
+  "esp32StreamUrl": "http://10.15.80.91:81/stream",
+  "esp32SnapshotUrl": "http://10.15.80.91/capture",
+  "esp32TriggerSnapshotUrl": "http://10.15.80.91/trigger-snapshot",
+  "esp32ControlUrl": "http://10.15.80.91/control",
+  "esp32StatusUrl": "http://10.15.80.91/status"
+}

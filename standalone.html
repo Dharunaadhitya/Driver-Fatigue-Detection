@@ -78,8 +78,8 @@
 
       <!-- Video Area Card -->
       <div class="video-area">
-        <div class="video-wrapper level-normal" id="videoWrapper">
           <video id="videoFeed" autoplay muted playsinline></video>
+          <img id="esp32Feed" alt="ESP32-CAM Live Stream" />
           <canvas id="overlayCanvas"></canvas>
 
           <!-- Face detected badge -->
@@ -89,7 +89,7 @@
           </div>
 
           <!-- Video label -->
-          <div class="video-label" id="videoLabel">WEBCAM</div>
+          <div class="video-label" id="videoLabel">ESP32-CAM</div>
         </div>
 
         <!-- Calibration Progress -->
@@ -192,8 +192,24 @@
           <div class="settings-section">
             <div class="settings-title">Video Source</div>
             <div class="setting-row">
-              <span class="setting-label">Camera</span>
-              <div class="setting-hint">Standard Webcam (via browser MediaDevices)</div>
+              <label class="setting-label" for="sourceToggle">Source Mode</label>
+              <select id="sourceToggle" class="form-select">
+                <option value="esp32" selected>📡 ESP32-CAM (Stream via Proxy)</option>
+                <option value="webcam">🎥 Webcam</option>
+              </select>
+            </div>
+
+            <div id="esp32Section">
+              <div class="esp32-badge" style="font-size: 12px; color: var(--primary); margin: 6px 0;">📡 ESP32-CAM Stream</div>
+              <div class="setting-row">
+                <label class="setting-label" for="esp32Url">Stream URL</label>
+                <div class="setting-hint">Centralized camera link configured in <code>config.json</code></div>
+                <input type="url" id="esp32Url" class="form-input" placeholder="/esp32/stream" value="/esp32/stream" />
+              </div>
+              <div class="esp32-actions" style="margin-top: 8px; display: flex; align-items: center; gap: 10px;">
+                <button class="btn btn-secondary btn-sm" id="applyEspBtn">Connect Stream</button>
+                <span class="esp32-status" id="esp32Status">⬤ Not connected</span>
+              </div>
             </div>
           </div>
 

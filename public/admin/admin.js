@@ -961,6 +961,9 @@ async function loadSettings() {
     document.getElementById('settingMar').value = data.settings.marThreshold || 0.60;
     document.getElementById('settingPerclosWarn').value = data.settings.perclosWarningPct || 40;
     document.getElementById('settingMicrosleepFrames').value = data.settings.microsleepFrames || 45;
+    if (document.getElementById('settingEsp32Url')) {
+      document.getElementById('settingEsp32Url').value = data.esp32Stream || data.esp32StreamUrl || 'http://10.15.80.91';
+    }
   } catch (err) {
     showToast(err.message, 'error');
   }
@@ -972,11 +975,12 @@ document.getElementById('settingsForm').addEventListener('submit', async (e) => 
   const marThreshold = document.getElementById('settingMar').value;
   const perclosWarningPct = document.getElementById('settingPerclosWarn').value;
   const microsleepFrames = document.getElementById('settingMicrosleepFrames').value;
+  const esp32Stream = document.getElementById('settingEsp32Url') ? document.getElementById('settingEsp32Url').value.trim() : undefined;
 
   try {
     await api('/api/settings', {
       method: 'PATCH',
-      body: JSON.stringify({ earMultiplier, marThreshold, perclosWarningPct, microsleepFrames })
+      body: JSON.stringify({ earMultiplier, marThreshold, perclosWarningPct, microsleepFrames, esp32Stream })
     });
     showToast('Fleet settings saved successfully', 'success');
   } catch (err) {

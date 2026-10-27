@@ -4,11 +4,10 @@
 [![MediaPipe](https://img.shields.io/badge/Computer_Vision-Google_MediaPipe_FaceMesh-0284C7?logo=google&logoColor=white)](https://developers.google.com/mediapipe)
 [![SQLite](https://img.shields.io/badge/Database-SQLite_WAL_Mode-003B57?logo=sqlite&logoColor=white)](https://www.sqlite.org/)
 [![WebSockets](https://img.shields.io/badge/RealTime-WebSockets_ws-FF6B6B)](https://github.com/websockets/ws)
-[![Webcam Only](https://img.shields.io/badge/Video_Source-Standard_Webcam-10B981)](#-core-detection-telemetry)
+[![Webcam & ESP32](https://img.shields.io/badge/Video_Source-Webcam_%26_ESP32--CAM-10B981)](#-core-detection-telemetry)
 [![Deploy on Render](https://img.shields.io/badge/Deploy-Render.com-46E3B7?logo=render&logoColor=white)](https://render.com)
-[![Deploy on Vercel](https://img.shields.io/badge/Deploy-Vercel-000000?logo=vercel&logoColor=white)](https://vercel.com)
 
-> Enterprise multi-driver fleet fatigue monitoring platform powered by client-side **Google MediaPipe FaceMesh** telemetry, Web Audio alarms, an offline-buffered **Driver Station Kiosk**, standard webcam support, and an executive fleet management suite built on Node.js, SQLite (WAL mode), and real-time WebSockets.
+> Enterprise multi-driver fleet fatigue monitoring platform powered by client-side **Google MediaPipe FaceMesh** telemetry, Web Audio alarms, an offline-buffered **Driver Station Kiosk**, standard webcam and **ESP32-CAM** support, and an executive fleet management suite built on Node.js, SQLite (WAL mode), and real-time WebSockets.
 
 ---
 
@@ -25,7 +24,8 @@
 - [Core Detection Telemetry](#-core-detection-telemetry)
 - [API Reference](#-api-reference)
 - [Risk Scoring Model](#-risk-scoring-model)
-- [Cloud Deployment (Render & Vercel)](#-cloud-deployment-render--vercel)
+- [ESP32 Camera Configuration (`config.json`)](#-esp32-camera-configuration-configjson)
+- [Cloud Deployment (Render)](#-cloud-deployment-render)
 - [Troubleshooting](#-troubleshooting)
 
 ---
@@ -281,23 +281,42 @@ Located in [`riskScore.js`](file:///d:/driver-fatigue/riskScore.js), the risk en
 | **50 – 74** | 🟠 **High** | Dangerous fatigue pattern; mandatory stop |
 | **75 – 100** | 🔴 **Critical** | Microsleep / severe exhaustion; vehicle intervention |
 
+## 📡 ESP32 Camera Configuration (`config.json`)
+
+All ESP32-CAM stream, capture, and control links are maintained in one centralized configuration file located at [`config.json`](file:///d:/driver-fatigue/config.json).
+
+```json
+{
+  "esp32Stream": "http://10.15.80.91",
+  "esp32StreamUrl": "http://10.15.80.91:81/stream",
+  "esp32SnapshotUrl": "http://10.15.80.91/capture",
+  "esp32TriggerSnapshotUrl": "http://10.15.80.91/trigger-snapshot",
+  "esp32ControlUrl": "http://10.15.80.91/control",
+  "esp32StatusUrl": "http://10.15.80.91/status"
+}
+```
+
+### Centralized Access Everywhere
+- **Server-Side Proxy**: Node.js server proxies the raw MJPEG stream at `http://localhost:8080/esp32/stream` so browser clients never encounter CORS or network boundary restrictions.
+- **Dynamic Frontend Module**: Frontend imports [`js/config.js`](file:///d:/driver-fatigue/js/config.js) or requests `/api/config` to dynamically read the current link.
+- **Admin Settings**: System administrators can view and modify the stream URL directly in the Fleet Admin Portal (`/admin`), which updates `config.json` automatically.
+- **Incident Snapshots**: Both client-side canvas captures and server-side hardware captures (`/capture` and `/trigger-snapshot`) automatically target the configured camera host.
+
 ---
 
-## ☁️ Cloud Deployment (Render & Vercel)
+## ☁️ Cloud Deployment (Render)
 
-### Option A: Deploy on Render (Recommended for Full WebSockets & SQLite)
+[Render.com](https://render.com) is the recommended hosting platform for this application because it runs a persistent Node.js environment supporting real-time WebSockets (`/ws`) and WAL-mode SQLite storage.
 
-[Render.com](https://render.com) is the ideal hosting platform for this application because it runs a persistent Node.js environment supporting real-time WebSockets (`/ws`) and WAL-mode SQLite storage.
-
-#### 1. Push Your Code to GitHub
+### 1. Push Your Code to GitHub
 Ensure all recent changes are committed and pushed:
 ```bash
 git add .
-git commit -m "fix(render): auto-seed database on startup and improve cloud deployment"
+git commit -m "feat: centralized ESP32 stream config and incident snapshots"
 git push origin main
 ```
 
-#### 2. Create Web Service on Render
+### 2. Create Web Service on Render
 1. Sign in to your [Render Dashboard](https://dashboard.render.com/).
 2. Click **New +** → **Web Service**.
 3. Connect your GitHub repository (`Driver-Fatigue-Detection`).
@@ -315,23 +334,6 @@ git push origin main
 
 > **💡 Automatic Database Seeding on Render:**
 > The SQLite database file (`data/drowsyguard.db`) is gitignored for clean version control. When Render boots a fresh clone, `server.js` automatically detects an empty database and runs `node seed.js` synchronously on startup. You can immediately log in as Admin (`admin@drowsyguard.io` / `admin123`) or Driver (`DRV-101` / PIN `1001`)!
-
----
-
-### Option B: Deploy on Vercel (Serverless Edge Deployment)
-
-[Vercel](https://vercel.com) provides instant global edge deployment. A dedicated serverless handler ([`api/index.js`](file:///d:/driver-fatigue/api/index.js)) runs pure JavaScript without native C++ compilation requirements (`better-sqlite3.node`), sourcing data from [`data/seed_data.json`](file:///d:/driver-fatigue/data/seed_data.json).
-
-1. Import your GitHub repository into [Vercel](https://vercel.com).
-2. Framework Preset: **Other** / None.
-3. Root Directory: `./`.
-4. Click **Deploy**.
-5. All route rewrites are configured automatically in [`vercel.json`](file:///d:/driver-fatigue/vercel.json):
-   - `/` → Main Camera Detector
-   - `/login` → Unified Common Login Portal
-   - `/admin` → Fleet Admin Intelligence Portal
-   - `/driver` → Driver In-Cab Kiosk Station
-   - `/api/*` → Pure JS Serverless Function
 
 ---
 
